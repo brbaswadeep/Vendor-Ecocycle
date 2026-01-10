@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function hasKeys(keys) {
+      return request.resource.data.keys().hasAll(keys);
+    }
+
+    // --- VENDORS COLLECTION ---
+    match /vendors/{userId} {
+      // READ: Allow if owner
+      allow get, list: if isOwner(userId);
+
+      // CREATE: Allow if owner and valid data
+      allow create: if isOwner(userId)
+                    && request.resource.data.role == 'vendor'
+                    && request.resource.data.email is string
+                    && request.resource.data.businessName is string
+                    && request.resource.data.contactPerson is string
+                    && request.resource.data.businessType is string
+                    // Ensure required fields for new schema are present
+                    && hasKeys(['email', 'businessName', 'contactPerson', 'businessType', 'role', 'createdAt']);
+
+      // UPDATE: Allow if owner
+      allow update: if isOwner(userId)
+                    && request.resource.data.role == resource.data.role; // Immutable Role
+    }
+
+    // --- CUSTOMERS COLLECTION ---
+    match /customers/{userId} {
+      // Allow EVERYTHING for ANYONE temporarily to debug
+      allow read, write: if true;
+    }
+  }
+}
