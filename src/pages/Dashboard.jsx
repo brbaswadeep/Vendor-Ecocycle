@@ -44,7 +44,7 @@ export default function Dashboard() {
                     if (data.status === 'pending') pending++;
                     else if (data.status === 'accepted' && data.acceptedBy === currentUser.uid) {
                         accepted++;
-                        totalEarnings += data.finalQuote?.vendorEarnings || 0;
+                        totalEarnings += data.finalQuote?.finalVendorEarnings || 0;
 
                         // Check for projectMeta deadline
                         if (data.projectMeta?.estimatedCompletion) {
@@ -147,6 +147,9 @@ export default function Dashboard() {
                         icon={<TrendingUp className="w-6 h-6 text-brand-green" />}
                         onClick={() => navigate('/earnings')}
                     />
+                    <div className="text-[10px] text-center w-full col-span-2 -mt-4 text-brand-brown/40 font-medium opacity-0">
+                        (hidden)
+                    </div>
                 </div>
 
                 {/* Upcoming Deadlines Section */}
@@ -299,7 +302,10 @@ function DeadlineCard({ order, t, navigate }) {
                 <div>
                     <div className="text-xs text-brand-brown/40 font-bold uppercase">{t('your_earnings')}</div>
                     <div className="font-bold text-xl text-brand-brown">
-                        ₹{Math.round(order.finalQuote?.vendorEarnings || 0)}
+                        ₹{Math.round((order.finalQuote?.finalVendorEarnings || 0) + (order.finalQuote?.platformFee || 0))}
+                    </div>
+                    <div className="text-[10px] text-brand-brown/40 font-medium leading-none">
+                        (incl. platform fee)
                     </div>
                 </div>
                 <div className="w-10 h-10 rounded-full bg-brand-cream flex items-center justify-center group-hover:bg-brand-brown group-hover:text-white transition-all duration-300">

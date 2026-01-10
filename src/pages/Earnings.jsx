@@ -42,7 +42,8 @@ export default function Earnings() {
                 if (data.status === 'accepted' || data.status === 'completed') {
                     fetchedOrders.push({ id: doc.id, ...data });
 
-                    const earnings = data.finalQuote?.vendorEarnings || 0;
+                    // Show Net Earnings to vendor as requested for Financial Overview
+                    const earnings = data.finalQuote?.finalVendorEarnings || 0;
                     const comm = data.finalQuote?.platformFee || 0;
 
                     totalEarn += earnings;
@@ -136,7 +137,7 @@ export default function Earnings() {
                                         ₹{Math.round(order.finalQuote?.totalCustomerPrice || 0)}
                                     </td>
                                     <td className="px-6 py-4 font-bold text-green-600">
-                                        ₹{Math.round(order.finalQuote?.vendorEarnings || 0)}
+                                        ₹{Math.round(order.finalQuote?.finalVendorEarnings || 0)}
                                     </td>
                                     <td className="px-6 py-4 font-bold text-red-500 text-right">
                                         ₹{Math.round(order.finalQuote?.platformFee || 0)}

@@ -54,9 +54,9 @@ export default function Requests() {
     // Fetch Customer Details when request is selected
     useEffect(() => {
         const fetchCustomer = async () => {
-            if (selectedRequest?.userId) {
+            if (selectedRequest?.customerId) {
                 try {
-                    const userSnap = await getDoc(doc(db, 'customers', selectedRequest.userId));
+                    const userSnap = await getDoc(doc(db, 'customers', selectedRequest.customerId));
                     if (userSnap.exists()) {
                         setCustomerDetails(userSnap.data());
                     } else {
@@ -139,13 +139,13 @@ export default function Requests() {
         }
     }, [selectedRequest]);
 
-    const calculateFinalCosts = (request) => {
+    const calculateFinalCosts = (request, customDiscount = discount) => {
         if (!request?.itemDetails?.conversionDetails?.cost_breakdown) return null;
 
         const originalBaseMfg = Math.round(request.itemDetails.conversionDetails.cost_breakdown.base_manufacturing_cost);
 
         // 1. Calculate Discount (Max 10% on Mfg Price)
-        const discountAmount = Math.round(originalBaseMfg * (discount / 100));
+        const discountAmount = Math.round(originalBaseMfg * (customDiscount / 100));
         const discountedMfgPrice = originalBaseMfg - discountAmount;
 
         // 2. Calculate Commission on DISCOUNTED Price based on Rating
@@ -184,15 +184,7 @@ export default function Requests() {
             finalCustomerTotal
         };
 
-        return {
-            originalBaseMfg,
-            discountAmount,
-            discountedMfgPrice,
-            commission,
-            logistics,
-            finalVendorEarnings,
-            finalCustomerTotal
-        };
+
     };
 
     // Triggered when clicking "Accept" in the Details Modal
@@ -232,7 +224,19 @@ export default function Requests() {
             });
 
             // Refresh functionality (simple way: clear list or re-fetch)
-            setRequests(prev => prev.filter(req => req.id !== selectedRequest.id));
+            setRequests(prev => prev.map(req =>
+                req.id === selectedRequest.id ? {
+                    ...req,
+                    status: 'accepted',
+                    projectMeta: { // Optimistic update
+                        estimatedCompletion: new Date(estimatedDate),
+                        trackingStage: 'accepted',
+                        trackingHistory: [
+                            { stage: 'accepted', timestamp: new Date(), label: 'Order Accepted' }
+                        ]
+                    }
+                } : req
+            ));
             setIsAccepting(false);
             setSelectedRequest(null);
             setDiscount(0);
@@ -261,7 +265,11 @@ export default function Requests() {
                 ...prev,
                 projectMeta: {
                     ...prev.projectMeta,
-                    trackingStage: stageId
+                    trackingStage: stageId,
+                    trackingHistory: [
+                        ...(prev.projectMeta?.trackingHistory || []),
+                        { stage: stageId, timestamp: new Date(), label }
+                    ]
                 }
             }));
             setRequests(prev => prev.map(req =>
@@ -357,9 +365,9 @@ export default function Requests() {
                                 <div className="bg-green-50 p-3 rounded-xl border border-green-100">
                                     <div className="text-xs font-bold text-green-700 uppercase">{t('you_earn')}</div>
                                     <div className="font-bold text-2xl text-green-800">
-                                        ₹{Math.round(request.itemDetails.conversionDetails?.cost_breakdown?.base_manufacturing_cost || 0)}
+                                        ₹{Math.round((calculateFinalCosts(request, 0)?.finalVendorEarnings || 0) + (calculateFinalCosts(request, 0)?.commission || 0))}
                                     </div>
-                                    <div className="text-[10px] text-green-600 mt-1">{t('excludes_fees')}</div>
+                                    <div className="text-[10px] text-green-600 mt-1">{t('your_direct_earning')} <span className="opacity-70">(incl. comm)</span></div>
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
                                     <div className="text-xs font-bold text-gray-500 uppercase">{t('logistics_status')}</div>
@@ -440,7 +448,7 @@ export default function Requests() {
                                         <div>
                                             <h3 className="font-bold text-brand-brown">{customerDetails.name || 'Customer'}</h3>
                                             <div className="flex items-center gap-2 text-xs text-brand-brown/60">
-                                                <Phone className="w-3 h-3" /> {customerDetails.mobile || t('no_phone')}
+                                                <Phone className="w-3 h-3" /> {customerDetails.phone || customerDetails.mobile || t('no_phone')}
                                             </div>
                                             <div className="flex items-center gap-2 text-xs text-brand-brown/60 mt-1">
                                                 <MapPin className="w-3 h-3" /> {customerDetails.address || t('no_address')}
@@ -522,11 +530,11 @@ export default function Requests() {
                                         <div className="flex justify-between items-center mb-2">
                                             <span className="opacity-80">{t('est_earnings')}</span>
                                             <span className="font-bold text-2xl text-green-400">
-                                                ₹{Math.round(selectedRequest.itemDetails.conversionDetails?.cost_breakdown?.base_manufacturing_cost || 0)}
+                                                ₹{Math.round((calculateFinalCosts(selectedRequest, 0)?.finalVendorEarnings || 0) + (calculateFinalCosts(selectedRequest, 0)?.commission || 0))}
                                             </span>
                                         </div>
                                         <div className="text-xs opacity-50 mb-4 text-right">
-                                            {t('before_tracking')}
+                                            (including platform fee)
                                         </div>
 
                                         {selectedRequest.status === 'pending' ? (
@@ -553,7 +561,7 @@ export default function Requests() {
                                                             return (
                                                                 <button
                                                                     key={stage.id}
-                                                                    onClick={() => handleUpdateTracking(stage.id, stage.label)}
+                                                                    onClick={() => handleUpdateTracking(stage.id, t(stage.labelKey))}
                                                                     className={`w-full flex items-center gap-3 p-2 rounded-lg text-sm transition-all ${isCurrent ? 'bg-green-500 text-white font-bold' :
                                                                         isPast ? 'bg-green-500/30 text-white/50' : 'bg-white/5 hover:bg-white/10 text-white'
                                                                         }`}
@@ -648,13 +656,23 @@ export default function Requests() {
                                 </div>
                             )}
                             <div className="flex justify-between text-xs text-brand-brown/40 pt-1">
-                                <span>{t('platform_comm')} (5%):</span>
-                                <span>+₹{Math.round(((selectedRequest.itemDetails.conversionDetails?.cost_breakdown?.base_manufacturing_cost || 0) * (1 - discount / 100)) * 0.05)}</span>
+                                <span>{t('platform_comm')} ({(calculateFinalCosts(selectedRequest)?.commissionRate * 100).toFixed(1)}%):</span>
+                                <span>+₹{calculateFinalCosts(selectedRequest)?.commission}</span>
                             </div>
                             <div className="flex justify-between font-bold text-lg text-brand-green pt-2 mt-1 border-t border-gray-200">
                                 <span>{t('cust_pays')}:</span>
-                                <span>₹{calculateFinalCustomerPrice()}</span>
+                                <span>₹{Math.ceil(calculateFinalCosts(selectedRequest)?.finalCustomerTotal || 0)}</span>
                             </div>
+                        </div>
+
+                        <div className="bg-brand-brown/5 p-4 rounded-xl text-center">
+                            <h3 className="text-sm font-bold text-brand-brown uppercase mb-1">{t('your_earning')}</h3>
+                            <div className="text-3xl font-black text-brand-green">
+                                ₹{Math.round((calculateFinalCosts(selectedRequest)?.finalVendorEarnings || 0) + (calculateFinalCosts(selectedRequest)?.commission || 0))}
+                            </div>
+                            <p className="text-xs text-brand-brown/40 mt-1 font-bold">
+                                (including platform fee)
+                            </p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 mt-6">
@@ -665,7 +683,7 @@ export default function Requests() {
                                 {t('cancel')}
                             </button>
                             <button
-                                onClick={handleConfirmAccept}
+                                onClick={confirmAcceptance}
                                 disabled={!estimatedDate}
                                 className="py-3 bg-brand-brown text-white font-bold rounded-xl hover:bg-brand-green transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
                             >
@@ -677,14 +695,14 @@ export default function Requests() {
             )}
 
             {/* Chat Modal */}
-            {selectedRequest && selectedRequest.userId && showChat && (
+            {selectedRequest && selectedRequest.customerId && showChat && (
                 <ChatModal
                     open={showChat}
                     onClose={() => setShowChat(false)}
                     orderId={selectedRequest.id}
                     currentUserId={currentUser.uid}
                     recipientName={customerDetails?.name || 'Customer'}
-                    receiverId={selectedRequest.userId}
+                    receiverId={selectedRequest.customerId}
                 />
             )}
         </div>
