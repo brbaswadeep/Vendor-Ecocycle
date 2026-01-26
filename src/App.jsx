@@ -1,4 +1,5 @@
 import React from 'react';
+import { APILoader } from '@googlemaps/extended-component-library/react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LandingPage from './pages/LandingPage';
@@ -20,11 +21,15 @@ function PrivateRoute({ children }) {
 }
 
 function App() {
+  const GOOGLE_MAPS_API_KEY = "AIzaSyBjhn7f7atke2N588iXT_i67Bgx3bKQZN8"; // Should typically be in .env
+
   return (
     <AuthProvider>
+      <APILoader apiKey={GOOGLE_MAPS_API_KEY} solutionChannel="GMP_GE_mapsandplacesautocomplete_v2" />
       <Router>
         <Routes>
           <Route path="/" element={<LandingPage />} />
+// ... (rest of routes)
 
           {/* Protected Routes wrapped in Layout */}
           <Route element={<Layout />}>

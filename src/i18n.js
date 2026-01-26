@@ -48,6 +48,12 @@ const resources = {
             "material_unknown": "Material Unknown",
             "just_now": "Just now",
 
+            // Buying Feature
+            "buy_now": "Buy Now",
+            "you_pay": "You Pay",
+            "purchase_cost": "Purchase Cost",
+            "confirm_purchase": "Confirm Purchase",
+
             // Request Details Modal
             "project_details": "Project Details",
             "request_id": "Request ID",

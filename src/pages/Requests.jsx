@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, updateDoc, doc, orderBy, getDoc } from 'firebase/firestore';
-import { Loader2, MapPin, CheckCircle, XCircle, Clock, Package, Calendar, Truck, PlayCircle, Hourglass, CheckSquare, User, Phone, MessageCircle } from 'lucide-react';
+import { Loader2, MapPin, CheckCircle, XCircle, Clock, Package, Calendar, Truck, PlayCircle, Hourglass, CheckSquare, User, Phone, MessageCircle, Inbox } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import ChatModal from '../components/ChatModal';
 import { useTranslation } from 'react-i18next';
@@ -27,7 +27,8 @@ export default function Requests() {
     const [loading, setLoading] = useState(true);
 
     // Filter State
-    const [filter, setFilter] = useState('pending'); // pending | accepted | declined
+    const [filterStatus, setFilterStatus] = useState('pending'); // pending | accepted | declined
+    const [filterType, setFilterType] = useState('all'); // all | service | buy | purchased
 
     // Modal States
     const [selectedRequest, setSelectedRequest] = useState(null);
@@ -42,14 +43,14 @@ export default function Requests() {
     useEffect(() => {
         const queryParams = new URLSearchParams(location.search);
         const filterParam = queryParams.get('filter');
-        if (filterParam) setFilter(filterParam);
+        if (filterParam) setFilterStatus(filterParam);
     }, [location]);
 
     useEffect(() => {
         if (currentUser) {
             fetchRequests();
         }
-    }, [currentUser, filter]); // Re-fetch or re-filter when filter changes
+    }, [currentUser]); // Re-fetch only on user change or manual trigger
 
     // Fetch Customer Details when request is selected
     useEffect(() => {
@@ -84,18 +85,7 @@ export default function Requests() {
             const loadedRequests = [];
             querySnapshot.forEach((doc) => {
                 const data = doc.data();
-                // Filter Logic:
-                // 1. Pending: status === 'pending'
-                // 2. Accepted: status === 'accepted' AND acceptedBy === currentUser.uid
-                // 3. Declined: status === 'declined' (simplified) OR (future: vendor specific decline)
-
-                if (filter === 'pending' && data.status === 'pending') {
-                    loadedRequests.push({ id: doc.id, ...data });
-                } else if (filter === 'accepted' && data.status === 'accepted' && data.acceptedBy === currentUser.uid) {
-                    loadedRequests.push({ id: doc.id, ...data });
-                } else if (filter === 'declined' && data.status === 'declined') {
-                    loadedRequests.push({ id: doc.id, ...data });
-                }
+                loadedRequests.push({ id: doc.id, ...data });
             });
 
             // Sort by date
@@ -140,7 +130,42 @@ export default function Requests() {
     }, [selectedRequest]);
 
     const calculateFinalCosts = (request, customDiscount = discount) => {
-        if (!request?.itemDetails?.conversionDetails?.cost_breakdown) return null;
+        if (!request?.itemDetails) return null;
+
+        const isSellRequest = request.itemDetails.requestType === 'sell';
+
+        // --- Logic for SELL Requests (Vendor Buys) ---
+        // --- Logic for SELL Requests (Vendor Buys) ---
+        if (isSellRequest) {
+            const askingPrice = parseFloat(request.itemDetails.askingPrice || 0);
+
+            // Commission Splitting: 1/2 paid by Customer, 1/2 by Vendor
+            // Total Platform Fee (e.g., 10%)
+            let commissionRate = 0.10;
+            const totalCommission = Math.round(askingPrice * commissionRate);
+            const vendorShare = totalCommission / 2;
+            const customerShare = totalCommission / 2;
+
+            const vendorPays = askingPrice + vendorShare; // Vendor Price + Their Share of Fee
+            const customerEarnings = askingPrice - customerShare; // Customer gets Price - Their Share
+
+            return {
+                isSellRequest: true,
+                originalBaseMfg: 0,
+                discountAmount: 0,
+                discountedMfgPrice: 0,
+                commission: totalCommission,
+                commissionRate,
+                logistics: 0,
+                finalVendorEarnings: -vendorPays, // Negative because it's a cost
+                finalVendorCost: vendorPays, // TOTAL Vendor Cost
+                finalCustomerTotal: 0,
+                customerEarnings: customerEarnings // Net for Customer
+            };
+        }
+
+        // --- Logic for SERVICE Requests (Vendor Provides Service) ---
+        if (!request.itemDetails.conversionDetails?.cost_breakdown) return null;
 
         const originalBaseMfg = Math.round(request.itemDetails.conversionDetails.cost_breakdown.base_manufacturing_cost);
 
@@ -149,31 +174,25 @@ export default function Requests() {
         const discountedMfgPrice = originalBaseMfg - discountAmount;
 
         // 2. Calculate Commission on DISCOUNTED Price based on Rating
-        // Default: 2.0%
-        // Rating >= 4.0: 1.5%
-        // Rating >= 4.5: 1.0%
-        let commissionRate = 0.02;
         const rating = parseFloat(currentUser.rating || 0);
+        let commissionRate = 0.02;
         if (rating >= 4.5) commissionRate = 0.01;
         else if (rating >= 4.0) commissionRate = 0.015;
 
         const commission = Math.round(discountedMfgPrice * commissionRate);
 
-        // 3. Logistics (Direct pass-through or 0)
+        // 3. Logistics
         let logistics = 0;
         if (request.itemDetails.conversionDetails.includeLogistics) {
             logistics = Math.round(request.itemDetails.conversionDetails.cost_breakdown.logistics_cost);
         }
 
         // 4. Final Totals
-        // Customer Pays: Discounted Mfg + Commission + Logistics
         const finalCustomerTotal = discountedMfgPrice + commission + logistics;
-
-        // Vendor Earns: Discounted Mfg (plus logistics if they handle it, usually logistics goes to platform then back, but let's assume Vendor gets Mfg + Logistics for simplicity logic or just Mfg)
-        // Usually Vendor gets (Mfg + Logistics). Commission goes to Platform.
-        const finalVendorEarnings = discountedMfgPrice;
+        const finalVendorEarnings = discountedMfgPrice; // Simplified
 
         return {
+            isSellRequest: false,
             originalBaseMfg,
             discountAmount,
             discountedMfgPrice,
@@ -183,8 +202,6 @@ export default function Requests() {
             finalVendorEarnings,
             finalCustomerTotal
         };
-
-
     };
 
     // Triggered when clicking "Accept" in the Details Modal
@@ -194,18 +211,27 @@ export default function Requests() {
 
     // Finalize Acceptance with Date & Discount
     const confirmAcceptance = async () => {
-        if (!selectedRequest || !estimatedDate) {
+        const isSell = selectedRequest?.itemDetails?.requestType === 'sell';
+
+        // Validation only for Service requests
+        if (!isSell && (!selectedRequest || !estimatedDate)) {
             alert(t('alert_select_date'));
             return;
         }
 
         const costs = calculateFinalCosts(selectedRequest);
+        const completionDate = isSell ? new Date() : new Date(estimatedDate);
 
         try {
             await updateDoc(doc(db, "requests", selectedRequest.id), {
                 status: 'accepted',
                 acceptedBy: currentUser.uid,
-                finalQuote: {
+                finalQuote: isSell ? {
+                    vendorPays: costs.finalVendorCost,
+                    customerEarnings: costs.customerEarnings,
+                    platformFee: costs.commission,
+                    totalTransaction: costs.finalVendorCost // Total Amount Vendor Pays
+                } : {
                     originalBasePrice: costs.originalBaseMfg,
                     discountAppliedPercent: discount,
                     discountAmount: costs.discountAmount,
@@ -215,10 +241,10 @@ export default function Requests() {
                     totalCustomerPrice: costs.finalCustomerTotal
                 },
                 projectMeta: {
-                    estimatedCompletion: new Date(estimatedDate),
-                    trackingStage: 'accepted', // Initial stage changed to 'accepted' as per user
+                    estimatedCompletion: completionDate,
+                    trackingStage: 'accepted',
                     trackingHistory: [
-                        { stage: 'accepted', timestamp: new Date(), label: 'Order Accepted' }
+                        { stage: 'accepted', timestamp: new Date(), label: isSell ? 'Purchase Confirmed' : 'Order Accepted' }
                     ]
                 }
             });
@@ -229,10 +255,10 @@ export default function Requests() {
                     ...req,
                     status: 'accepted',
                     projectMeta: { // Optimistic update
-                        estimatedCompletion: new Date(estimatedDate),
+                        estimatedCompletion: completionDate,
                         trackingStage: 'accepted',
                         trackingHistory: [
-                            { stage: 'accepted', timestamp: new Date(), label: 'Order Accepted' }
+                            { stage: 'accepted', timestamp: new Date(), label: isSell ? 'Purchase Confirmed' : 'Order Accepted' }
                         ]
                     }
                 } : req
@@ -293,41 +319,102 @@ export default function Requests() {
         }
     };
 
+    const filteredRequests = requests.filter(req => {
+        // Special case for 'Purchased' view (Completed Buy Requests)
+        if (filterType === 'purchased') {
+            return req.itemDetails?.requestType === 'sell' && req.status === 'accepted';
+        }
+
+        // Standard Status Filtering
+        if (req.status !== filterStatus) return false;
+
+        // Type Filtering (Service vs Buy)
+        if (filterType === 'service') return req.itemDetails?.requestType !== 'sell';
+        if (filterType === 'buy') return req.itemDetails?.requestType === 'sell';
+
+        return true;
+    });
+
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex justify-between items-center">
-                <h1 className="text-3xl font-bold text-brand-brown">{t('incoming_requests')}</h1>
+            {/* Header Steps */}
+            <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white p-4 rounded-3xl shadow-sm border border-brand-brown/5">
+                <div>
+                    <h1 className="text-2xl font-bold text-brand-brown">{t('requests')}</h1>
+                    <div className="flex items-center gap-2 text-brand-brown/60 text-sm mt-1">
+                        <Package className="w-4 h-4" />
+                        <span>Manage incoming pickups and inventory</span>
+                    </div>
+                </div>
 
-                {/* Filter Tabs */}
-                <div className="flex gap-2 bg-white/50 p-1 rounded-xl border border-brand-brown/10">
-                    {['pending', 'accepted', 'declined'].map(f => (
-                        <button
-                            key={f}
-                            onClick={() => setFilter(f)}
-                            className={`px-4 py-2 rounded-lg text-sm font-bold capitalize transition-all ${filter === f
-                                ? 'bg-brand-brown text-white shadow-md'
-                                : 'text-brand-brown/60 hover:bg-brand-brown/5'
-                                }`}
-                        >
-                            {f === 'accepted' ? t('filter_approved') : f === 'pending' ? t('filter_pending') : t('filter_declined')}
-                        </button>
-                    ))}
+                {/* Type Filter Toggles */}
+                <div className="flex bg-gray-100 p-1 rounded-xl">
+                    <button
+                        onClick={() => { setFilterType('all'); setFilterStatus('pending'); }}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filterType === 'all' && filterStatus === 'pending' ? 'bg-white shadow-sm text-brand-brown' : 'text-gray-500 hover:text-brand-brown'}`}
+                    >
+                        New
+                    </button>
+                    <button
+                        onClick={() => { setFilterType('buy'); setFilterStatus('pending'); }}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filterType === 'buy' && filterStatus === 'pending' ? 'bg-brand-green/10 text-brand-green shadow-sm' : 'text-gray-500 hover:text-brand-green'}`}
+                    >
+                        {t('buy_requests') || 'Buy Leads'}
+                    </button>
+                    <button
+                        onClick={() => { setFilterType('purchased'); }}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filterType === 'purchased' ? 'bg-brand-green text-white shadow-md' : 'text-gray-500 hover:text-brand-green'}`}
+                    >
+                        Inventory
+                    </button>
                 </div>
             </div>
 
-            {loading ? (
-                <div className="flex justify-center py-20">
-                    <Loader2 className="w-10 h-10 text-brand-orange animate-spin" />
+            {/* Status Tabs (Only show if not in Purchased/Inventory mode) */}
+            {filterType !== 'purchased' && (
+                <div className="flex gap-2 justify-center md:justify-start overflow-x-auto pb-2">
+                    <button
+                        onClick={() => setFilterStatus('pending')}
+                        className={`px-6 py-2 rounded-full whitespace-nowrap text-sm font-bold transition-all border ${filterStatus === 'pending'
+                            ? 'bg-brand-brown text-white border-brand-brown shadow-lg shadow-brand-brown/20'
+                            : 'bg-white text-brand-brown border-brand-brown/20 hover:bg-brand-brown/5'
+                            }`}
+                    >
+                        {t('filter_pending')}
+                    </button>
+                    <button
+                        onClick={() => setFilterStatus('accepted')}
+                        className={`px-6 py-2 rounded-full whitespace-nowrap text-sm font-bold transition-all border ${filterStatus === 'accepted'
+                            ? 'bg-brand-brown text-white border-brand-brown shadow-lg shadow-brand-brown/20'
+                            : 'bg-white text-brand-brown border-brand-brown/20 hover:bg-brand-brown/5'
+                            }`}
+                    >
+                        {t('filter_approved')}
+                    </button>
+                    <button
+                        onClick={() => setFilterStatus('declined')}
+                        className={`px-6 py-2 rounded-full whitespace-nowrap text-sm font-bold transition-all border ${filterStatus === 'declined'
+                            ? 'bg-brand-brown text-white border-brand-brown shadow-lg shadow-brand-brown/20'
+                            : 'bg-white text-brand-brown border-brand-brown/20 hover:bg-brand-brown/5'
+                            }`}
+                    >
+                        {t('filter_declined')}
+                    </button>
                 </div>
-            ) : requests.length === 0 ? (
-                <div className="text-center py-20 bg-white rounded-3xl border border-brand-brown/10">
-                    <Package className="w-16 h-16 text-brand-brown/20 mx-auto mb-4" />
-                    <h3 className="text-xl font-bold text-brand-brown">{t('no_requests_yet')}</h3>
-                    <p className="text-brand-brown/60">{t('nearby_requests_hint')}</p>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {requests.map(request => (
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                {loading ? (
+                    <div className="col-span-full flex justify-center py-20">
+                        <Loader2 className="w-10 h-10 text-brand-orange animate-spin" />
+                    </div>
+                ) : filteredRequests.length === 0 ? (
+                    <div className="col-span-full py-12 text-center text-brand-brown/40 border-2 border-dashed border-brand-brown/10 rounded-3xl">
+                        <Inbox className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                        <h3 className="text-xl font-bold mb-2">{t('no_requests_yet')}</h3>
+                        <p>{filterType === 'purchased' ? "You haven't bought any items yet." : t('nearby_requests_hint')}</p>
+                    </div>
+                ) : (
+                    filteredRequests.map((request) => (
                         <div key={request.id} className="bg-white rounded-2xl p-6 shadow-sm border border-brand-brown/10 hover:shadow-md transition-shadow">
 
                             {/* Header / Status */}
@@ -362,20 +449,30 @@ export default function Requests() {
 
                             {/* Budget/Cost Section */}
                             <div className="grid grid-cols-2 gap-4 mt-4">
-                                <div className="bg-green-50 p-3 rounded-xl border border-green-100">
-                                    <div className="text-xs font-bold text-green-700 uppercase">{t('you_earn')}</div>
-                                    <div className="font-bold text-2xl text-green-800">
-                                        ₹{Math.round((calculateFinalCosts(request, 0)?.finalVendorEarnings || 0) + (calculateFinalCosts(request, 0)?.commission || 0))}
+                                {request.itemDetails?.requestType === 'sell' ? (
+                                    <div className="bg-orange-50 p-3 rounded-xl border border-orange-100">
+                                        <div className="text-xs font-bold text-orange-700 uppercase">{t('you_pay')}</div>
+                                        <div className="font-bold text-2xl text-orange-800">
+                                            ₹{calculateFinalCosts(request)?.finalVendorCost || 0}
+                                        </div>
+                                        <div className="text-[10px] text-orange-600 mt-1">{t('purchase_cost')}</div>
                                     </div>
-                                    <div className="text-[10px] text-green-600 mt-1">{t('your_direct_earning')} <span className="opacity-70">(incl. comm)</span></div>
-                                </div>
+                                ) : (
+                                    <div className="bg-green-50 p-3 rounded-xl border border-green-100">
+                                        <div className="text-xs font-bold text-green-700 uppercase">{t('you_earn')}</div>
+                                        <div className="font-bold text-2xl text-green-800">
+                                            ₹{Math.round((calculateFinalCosts(request, 0)?.finalVendorEarnings || 0) + (calculateFinalCosts(request, 0)?.commission || 0))}
+                                        </div>
+                                        <div className="text-[10px] text-green-600 mt-1">{t('your_direct_earning')} <span className="opacity-70">(incl. comm)</span></div>
+                                    </div>
+                                )}
                                 <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
                                     <div className="text-xs font-bold text-gray-500 uppercase">{t('logistics_status')}</div>
                                     <div className="font-bold text-brand-brown">
-                                        {request.itemDetails.conversionDetails?.includeLogistics ? t('vendor_managed') : t('customer_managed')}
+                                        {request.itemDetails?.conversionDetails?.includeLogistics ? t('vendor_managed') : t('customer_managed')}
                                     </div>
                                     <div className="text-[10px] text-gray-400 mt-1">
-                                        {request.itemDetails.conversionDetails?.includeLogistics ? t('extra_payout') : t('no_delivery')}
+                                        {request.itemDetails?.conversionDetails?.includeLogistics ? t('extra_payout') : t('no_delivery')}
                                     </div>
                                 </div>
                             </div>
@@ -400,10 +497,10 @@ export default function Requests() {
                                         </button>
                                         <button
                                             onClick={() => setSelectedRequest(request)}
-                                            className="py-2 bg-brand-brown text-white rounded-lg hover:bg-brand-green transition-colors font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-brand-brown/20 hover:shadow-brand-green/20"
+                                            className={`py-2 text-white rounded-lg transition-colors font-bold text-sm flex items-center justify-center gap-2 shadow-lg ${request.itemDetails?.requestType === 'sell' ? 'bg-brand-green hover:bg-brand-green-dark shadow-brand-green/20' : 'bg-brand-brown hover:bg-brand-brown-dark shadow-brand-brown/20'}`}
                                         >
                                             <CheckCircle className="w-4 h-4" />
-                                            {t('accept')}
+                                            {request.itemDetails?.requestType === 'sell' ? t('buy_now') : t('accept')}
                                         </button>
                                     </div>
                                 )}
@@ -415,296 +512,358 @@ export default function Requests() {
                                 )}
                             </div>
                         </div>
-                    ))}
-                </div>
-            )}
+                    ))
+                )}
+            </div>
 
             {/* Detailed Modal */}
-            {selectedRequest && (
-                <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-                    <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl animate-in slide-in-from-bottom-10 duration-300">
-                        <div className="p-6">
-                            <div className="flex justify-between items-start mb-6">
-                                <div>
-                                    <h2 className="text-2xl font-bold text-brand-brown">{t('project_details')}</h2>
-                                    <p className="text-brand-brown/60">{t('request_id')}: {selectedRequest.id.slice(0, 8)}...</p>
+            {
+                selectedRequest && (
+                    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+                        <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl animate-in slide-in-from-bottom-10 duration-300">
+                            <div className="p-6">
+                                <div className="flex justify-between items-start mb-6">
+                                    <div>
+                                        <h2 className="text-2xl font-bold text-brand-brown">{t('project_details')}</h2>
+                                        <p className="text-brand-brown/60">{t('request_id')}: {selectedRequest.id.slice(0, 8)}...</p>
+                                    </div>
+                                    <button
+                                        onClick={() => setSelectedRequest(null)}
+                                        className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                                    >
+                                        <XCircle className="w-6 h-6 text-gray-400" />
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={() => setSelectedRequest(null)}
-                                    className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                                >
-                                    <XCircle className="w-6 h-6 text-gray-400" />
-                                </button>
-                            </div>
 
-                            <div className="space-y-6">
+                                <div className="space-y-6">
 
-                                {/* Customer Details Section */}
-                                {customerDetails && (
-                                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex items-center gap-4">
-                                        <div className="w-12 h-12 bg-brand-brown/10 rounded-full flex items-center justify-center">
-                                            <User className="w-6 h-6 text-brand-brown" />
-                                        </div>
-                                        <div>
-                                            <h3 className="font-bold text-brand-brown">{customerDetails.name || 'Customer'}</h3>
-                                            <div className="flex items-center gap-2 text-xs text-brand-brown/60">
-                                                <Phone className="w-3 h-3" /> {customerDetails.phone || customerDetails.mobile || t('no_phone')}
+                                    {/* Customer Details Section */}
+                                    {customerDetails && (
+                                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex items-center gap-4">
+                                            <div className="w-12 h-12 bg-brand-brown/10 rounded-full flex items-center justify-center">
+                                                <User className="w-6 h-6 text-brand-brown" />
                                             </div>
-                                            <div className="flex items-center gap-2 text-xs text-brand-brown/60 mt-1">
-                                                <MapPin className="w-3 h-3" /> {customerDetails.address || t('no_address')}
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={() => setShowChat(true)}
-                                            className="ml-auto px-4 py-2 bg-brand-brown text-white text-sm font-bold rounded-lg hover:bg-brand-brown/90 flex items-center gap-2"
-                                        >
-                                            <MessageCircle className="w-4 h-4" />
-                                            {t('chat')}
-                                        </button>
-                                    </div>
-                                )}
-
-                                {/* Use Case */}
-                                <div className="bg-brand-brown/5 p-4 rounded-xl border border-brand-brown/10">
-                                    <div className="text-xs font-bold text-brand-brown/60 uppercase mb-2">{t('daily_use_case')}</div>
-                                    <p className="text-brand-brown italic">"{selectedRequest.itemDetails.conversionDetails?.daily_use_case}"</p>
-                                </div>
-
-                                {/* Analysis Factors */}
-                                {selectedRequest.itemDetails.conversionDetails?.analysis_factors && (
-                                    <div className="grid grid-cols-3 gap-4">
-                                        <div className="border p-3 rounded-xl text-center bg-gray-50">
-                                            <div className="text-xs font-bold text-gray-400 uppercase">{t('yield')}</div>
-                                            <div className="text-lg font-bold text-brand-brown">{selectedRequest.itemDetails.conversionDetails.analysis_factors.yield_factor}</div>
-                                        </div>
-                                        <div className="border p-3 rounded-xl text-center bg-gray-50">
-                                            <div className="text-xs font-bold text-gray-400 uppercase">{t('quality')}</div>
-                                            <div className="text-lg font-bold text-brand-brown">{selectedRequest.itemDetails.conversionDetails.analysis_factors.quality_grade}</div>
-                                        </div>
-                                        <div className="border p-3 rounded-xl text-center bg-gray-50">
-                                            <div className="text-xs font-bold text-gray-400 uppercase">{t('weight')}</div>
-                                            <div className="text-lg font-bold text-brand-brown">{selectedRequest.itemDetails.conversionDetails.analysis_factors.usable_weight_kg} kg</div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Material Lists */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
-                                        <div className="text-xs font-bold text-orange-700 uppercase mb-3">{t('cust_provides')}</div>
-                                        <ul className="space-y-2">
-                                            {selectedRequest.itemDetails.conversionDetails?.materials_needed?.customer_can_provide?.map((m, i) => (
-                                                <li key={i} className="flex items-start gap-2 text-sm text-brand-brown">
-                                                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-orange-400 flex-shrink-0" />
-                                                    {m}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                    <div className="bg-green-50 p-4 rounded-xl border border-green-100">
-                                        <div className="text-xs font-bold text-green-700 uppercase mb-3">{t('you_provide')}</div>
-                                        <ul className="space-y-2">
-                                            {selectedRequest.itemDetails.conversionDetails?.materials_needed?.vendor_can_provide?.map((m, i) => (
-                                                <li key={i} className="flex items-start gap-2 text-sm text-brand-brown">
-                                                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
-                                                    {m}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                </div>
-
-                                {/* Processing Instructions */}
-                                <div>
-                                    <div className="text-xs font-bold text-brand-brown/60 uppercase mb-2">{t('processing_steps')}</div>
-                                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 text-sm text-brand-brown leading-relaxed">
-                                        {selectedRequest.itemDetails.conversionDetails?.required_processing}
-                                    </div>
-                                </div>
-
-                                {/* Financial Summary */}
-                                <div className="border-t pt-6">
-                                    <h3 className="font-bold text-brand-brown mb-4">{t('payout_analysis')}</h3>
-
-                                    <div className="bg-brand-brown text-white p-6 rounded-2xl shadow-xl mt-4">
-                                        <div className="flex justify-between items-center mb-2">
-                                            <span className="opacity-80">{t('est_earnings')}</span>
-                                            <span className="font-bold text-2xl text-green-400">
-                                                ₹{Math.round((calculateFinalCosts(selectedRequest, 0)?.finalVendorEarnings || 0) + (calculateFinalCosts(selectedRequest, 0)?.commission || 0))}
-                                            </span>
-                                        </div>
-                                        <div className="text-xs opacity-50 mb-4 text-right">
-                                            (including platform fee)
-                                        </div>
-
-                                        {selectedRequest.status === 'pending' ? (
-                                            <button
-                                                onClick={initiateAccept}
-                                                className="w-full py-3 bg-white text-brand-brown rounded-xl font-bold hover:bg-brand-green hover:text-white transition-all shadow-lg"
-                                            >
-                                                {t('review_accept')}
-                                            </button>
-                                        ) : selectedRequest.status === 'accepted' ? (
-                                            <div className="space-y-4">
-                                                <div className="text-center bg-white/10 py-2 rounded-lg font-bold">
-                                                    {t('order_active')}
+                                            <div>
+                                                <h3 className="font-bold text-brand-brown">{customerDetails.name || 'Customer'}</h3>
+                                                <div className="flex items-center gap-2 text-xs text-brand-brown/60">
+                                                    <Phone className="w-3 h-3" /> {customerDetails.phone || customerDetails.mobile || t('no_phone')}
                                                 </div>
+                                                <div className="flex items-center gap-2 text-xs text-brand-brown/60 mt-1">
+                                                    <MapPin className="w-3 h-3" /> {customerDetails.address || t('no_address')}
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => setShowChat(true)}
+                                                className="ml-auto px-4 py-2 bg-brand-brown text-white text-sm font-bold rounded-lg hover:bg-brand-brown/90 flex items-center gap-2"
+                                            >
+                                                <MessageCircle className="w-4 h-4" />
+                                                {t('chat')}
+                                            </button>
+                                        </div>
+                                    )}
 
-                                                {/* Tracking Controls */}
-                                                <div className="bg-white/10 p-4 rounded-xl">
-                                                    <div className="text-xs font-bold uppercase opacity-60 mb-3">{t('update_tracking')}</div>
-                                                    <div className="space-y-2">
-                                                        {TRACKING_STAGES.map((stage, idx) => {
-                                                            const isPast = TRACKING_STAGES.findIndex(s => s.id === selectedRequest.projectMeta?.trackingStage) >= idx;
-                                                            const isCurrent = selectedRequest.projectMeta?.trackingStage === stage.id;
+                                    {/* Use Case */}
+                                    <div className="bg-brand-brown/5 p-4 rounded-xl border border-brand-brown/10">
+                                        <div className="text-xs font-bold text-brand-brown/60 uppercase mb-2">{t('daily_use_case')}</div>
+                                        <p className="text-brand-brown italic">"{selectedRequest.itemDetails.conversionDetails?.daily_use_case}"</p>
+                                    </div>
 
-                                                            return (
-                                                                <button
-                                                                    key={stage.id}
-                                                                    onClick={() => handleUpdateTracking(stage.id, t(stage.labelKey))}
-                                                                    className={`w-full flex items-center gap-3 p-2 rounded-lg text-sm transition-all ${isCurrent ? 'bg-green-500 text-white font-bold' :
-                                                                        isPast ? 'bg-green-500/30 text-white/50' : 'bg-white/5 hover:bg-white/10 text-white'
-                                                                        }`}
-                                                                >
-                                                                    <stage.icon className="w-4 h-4" />
-                                                                    {t(stage.labelKey)}
-                                                                    {isCurrent && <span className="ml-auto text-[10px] bg-white/20 px-2 rounded">{t('current')}</span>}
-                                                                </button>
-                                                            )
-                                                        })}
+                                    {/* Analysis Factors */}
+                                    {selectedRequest.itemDetails.conversionDetails?.analysis_factors && (
+                                        <div className="grid grid-cols-3 gap-4">
+                                            <div className="border p-3 rounded-xl text-center bg-gray-50">
+                                                <div className="text-xs font-bold text-gray-400 uppercase">{t('yield')}</div>
+                                                <div className="text-lg font-bold text-brand-brown">{selectedRequest.itemDetails.conversionDetails.analysis_factors.yield_factor}</div>
+                                            </div>
+                                            <div className="border p-3 rounded-xl text-center bg-gray-50">
+                                                <div className="text-xs font-bold text-gray-400 uppercase">{t('quality')}</div>
+                                                <div className="text-lg font-bold text-brand-brown">{selectedRequest.itemDetails.conversionDetails.analysis_factors.quality_grade}</div>
+                                            </div>
+                                            <div className="border p-3 rounded-xl text-center bg-gray-50">
+                                                <div className="text-xs font-bold text-gray-400 uppercase">{t('weight')}</div>
+                                                <div className="text-lg font-bold text-brand-brown">{selectedRequest.itemDetails.conversionDetails.analysis_factors.usable_weight_kg} kg</div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Material Lists */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
+                                            <div className="text-xs font-bold text-orange-700 uppercase mb-3">{t('cust_provides')}</div>
+                                            <ul className="space-y-2">
+                                                {selectedRequest.itemDetails.conversionDetails?.materials_needed?.customer_can_provide?.map((m, i) => (
+                                                    <li key={i} className="flex items-start gap-2 text-sm text-brand-brown">
+                                                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-orange-400 flex-shrink-0" />
+                                                        {m}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                        <div className="bg-green-50 p-4 rounded-xl border border-green-100">
+                                            <div className="text-xs font-bold text-green-700 uppercase mb-3">{t('you_provide')}</div>
+                                            <ul className="space-y-2">
+                                                {selectedRequest.itemDetails.conversionDetails?.materials_needed?.vendor_can_provide?.map((m, i) => (
+                                                    <li key={i} className="flex items-start gap-2 text-sm text-brand-brown">
+                                                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
+                                                        {m}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    </div>
+
+                                    {/* Processing Instructions */}
+                                    <div>
+                                        <div className="text-xs font-bold text-brand-brown/60 uppercase mb-2">{t('processing_steps')}</div>
+                                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 text-sm text-brand-brown leading-relaxed">
+                                            {selectedRequest.itemDetails.conversionDetails?.required_processing}
+                                        </div>
+                                    </div>
+
+                                    {/* Financial Summary */}
+                                    <div className="border-t pt-6">
+                                        <h3 className="font-bold text-brand-brown mb-4">{t('payout_analysis')}</h3>
+
+                                        <div className="bg-brand-brown text-white p-6 rounded-2xl shadow-xl mt-4">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <span className="opacity-80">{t('est_earnings')}</span>
+                                                <span className="font-bold text-2xl text-green-400">
+                                                    ₹{Math.round((calculateFinalCosts(selectedRequest, 0)?.finalVendorEarnings || 0) + (calculateFinalCosts(selectedRequest, 0)?.commission || 0))}
+                                                </span>
+                                            </div>
+                                            <div className="text-xs opacity-50 mb-4 text-right">
+                                                (including platform fee)
+                                            </div>
+
+                                            {selectedRequest.status === 'pending' ? (
+                                                <button
+                                                    onClick={initiateAccept}
+                                                    className="w-full py-3 bg-white text-brand-brown rounded-xl font-bold hover:bg-brand-green hover:text-white transition-all shadow-lg"
+                                                >
+                                                    {t('review_accept')}
+                                                </button>
+                                            ) : selectedRequest.status === 'accepted' ? (
+                                                <div className="space-y-4">
+                                                    <div className="text-center bg-white/10 py-2 rounded-lg font-bold">
+                                                        {t('order_active')}
+                                                    </div>
+
+                                                    {/* Tracking Controls */}
+                                                    <div className="bg-white/10 p-4 rounded-xl">
+                                                        <div className="text-xs font-bold uppercase opacity-60 mb-3">{t('update_tracking')}</div>
+                                                        <div className="space-y-2">
+                                                            {TRACKING_STAGES.map((stage, idx) => {
+                                                                const isPast = TRACKING_STAGES.findIndex(s => s.id === selectedRequest.projectMeta?.trackingStage) >= idx;
+                                                                const isCurrent = selectedRequest.projectMeta?.trackingStage === stage.id;
+
+                                                                return (
+                                                                    <button
+                                                                        key={stage.id}
+                                                                        onClick={() => handleUpdateTracking(stage.id, t(stage.labelKey))}
+                                                                        className={`w-full flex items-center gap-3 p-2 rounded-lg text-sm transition-all ${isCurrent ? 'bg-green-500 text-white font-bold' :
+                                                                            isPast ? 'bg-green-500/30 text-white/50' : 'bg-white/5 hover:bg-white/10 text-white'
+                                                                            }`}
+                                                                    >
+                                                                        <stage.icon className="w-4 h-4" />
+                                                                        {t(stage.labelKey)}
+                                                                        {isCurrent && <span className="ml-auto text-[10px] bg-white/20 px-2 rounded">{t('current')}</span>}
+                                                                    </button>
+                                                                )
+                                                            })}
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        ) : (
-                                            <div className="text-center bg-white/10 py-2 rounded-lg font-bold">
-                                                Request {getStatusLabel(selectedRequest.status)}
-                                            </div>
-                                        )}
+                                            ) : (
+                                                <div className="text-center bg-white/10 py-2 rounded-lg font-bold">
+                                                    Request {getStatusLabel(selectedRequest.status)}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        <div className="p-4 bg-gray-50 border-t flex justify-end">
-                            <button
-                                onClick={() => {
-                                    setSelectedRequest(null);
-                                    setIsAccepting(false);
-                                }}
-                                className="px-6 py-2 bg-white border border-gray-300 rounded-xl font-bold text-brand-brown hover:bg-gray-50 transition-colors"
-                            >
-                                {t('close_details')}
-                            </button>
+                            <div className="p-4 bg-gray-50 border-t flex justify-end">
+                                <button
+                                    onClick={() => {
+                                        setSelectedRequest(null);
+                                        setIsAccepting(false);
+                                    }}
+                                    className="px-6 py-2 bg-white border border-gray-300 rounded-xl font-bold text-brand-brown hover:bg-gray-50 transition-colors"
+                                >
+                                    {t('close_details')}
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Acceptance Confirmation Popup */}
-            {isAccepting && selectedRequest && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 animate-in fade-in duration-200">
-                    <div className="bg-white p-8 rounded-3xl w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
-                        <h2 className="text-2xl font-bold text-brand-brown mb-2">{t('confirm_acceptance')}</h2>
-                        <p className="text-brand-brown/60 text-sm mb-6">{t('confirm_subtitle')}</p>
+            {
+                isAccepting && selectedRequest && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 animate-in fade-in duration-200">
+                        <div className="bg-white p-8 rounded-3xl w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
 
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold text-brand-brown uppercase mb-1">{t('est_completion')}</label>
-                                <input
-                                    type="date"
-                                    value={estimatedDate}
-                                    onChange={(e) => setEstimatedDate(e.target.value)}
-                                    className="w-full bg-brand-brown/5 border-none rounded-xl p-3 text-brand-brown font-bold focus:ring-2 focus:ring-brand-brown/20"
-                                />
-                            </div>
+                            {selectedRequest.itemDetails?.requestType === 'sell' ? (
+                                /* SELL REQUEST MODAL */
+                                <>
+                                    <h2 className="text-2xl font-bold text-brand-green mb-2">{t('confirm_purchase')}</h2>
+                                    <p className="text-brand-brown/60 text-sm mb-6">Review the final costs before adding to inventory.</p>
 
-                            <div>
-                                <label className="block text-xs font-bold text-brand-brown uppercase mb-1">{t('offer_discount')}</label>
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        max="10"
-                                        value={discount}
-                                        onChange={(e) => setDiscount(Math.min(10, Math.max(0, parseInt(e.target.value) || 0)))}
-                                        className="w-20 bg-brand-brown/5 border-none rounded-xl p-3 text-brand-brown font-bold focus:ring-2 focus:ring-brand-brown/20 text-center"
-                                    />
-                                    <span className="text-sm font-bold text-brand-brown">%</span>
-                                    <span className="text-xs text-brand-brown/40 ml-2">({t('applied_mfg')})</span>
-                                </div>
-                            </div>
-                        </div>
+                                    <div className="flex gap-4 mb-6 bg-gray-50 p-4 rounded-2xl">
+                                        {selectedRequest.itemImage && (
+                                            <img src={selectedRequest.itemImage} className="w-20 h-20 rounded-xl object-cover bg-white shadow-sm" />
+                                        )}
+                                        <div>
+                                            <div className="font-bold text-brand-brown line-clamp-2">{selectedRequest.itemName}</div>
+                                            <div className="text-xs text-brand-brown/50 mt-1 uppercase tracking-wider">{selectedRequest.itemDetails.material}</div>
+                                        </div>
+                                    </div>
 
-                        <div className="mt-6 bg-gray-50 p-4 rounded-xl space-y-2 border border-gray-100">
-                            <div className="flex justify-between text-sm text-brand-brown/60">
-                                <span>{t('base_mfg')}:</span>
-                                <span>₹{Math.round(selectedRequest.itemDetails.conversionDetails?.cost_breakdown?.base_manufacturing_cost || 0)}</span>
-                            </div>
-                            {discount > 0 && (
-                                <div className="flex justify-between text-sm text-red-500">
-                                    <span>{t('discount')} ({discount}%):</span>
-                                    <span>-₹{Math.round((selectedRequest.itemDetails.conversionDetails?.cost_breakdown?.base_manufacturing_cost || 0) * (discount / 100))}</span>
-                                </div>
+                                    <div className="bg-brand-brown/5 p-4 rounded-xl space-y-3 mb-6">
+                                        <div className="flex justify-between text-sm text-brand-brown/70">
+                                            <span>Product Cost (Ask Price):</span>
+                                            <span className="font-bold">₹{parseFloat(selectedRequest.itemDetails.askingPrice || 0)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm text-brand-brown/70">
+                                            <span>StartUp Commission ({calculateFinalCosts(selectedRequest)?.commissionRate * 100}%):</span>
+                                            <span className="font-bold">₹{calculateFinalCosts(selectedRequest)?.commission}</span>
+                                        </div>
+                                        <div className="border-t border-brand-brown/10 my-2"></div>
+                                        <div className="flex justify-between text-lg font-black text-brand-brown">
+                                            <span>You Pay Total:</span>
+                                            <span className="text-brand-green">₹{calculateFinalCosts(selectedRequest)?.finalVendorCost}</span>
+                                        </div>
+                                        <div className="text-center text-[10px] text-brand-brown/40 pt-1">
+                                            (Customer receives ₹{calculateFinalCosts(selectedRequest)?.customerEarnings})
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                            onClick={() => setIsAccepting(false)}
+                                            className="py-3 text-brand-brown font-bold hover:bg-brand-brown/5 rounded-xl transition-colors"
+                                        >
+                                            {t('cancel')}
+                                        </button>
+                                        <button
+                                            onClick={confirmAcceptance}
+                                            className="py-3 text-white font-bold rounded-xl transition-colors shadow-lg bg-brand-green hover:bg-brand-green-dark"
+                                        >
+                                            Confirm & Buy
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                /* SERVICE REQUEST MODAL (Existing) */
+                                <>
+                                    <h2 className="text-2xl font-bold text-brand-brown mb-2">{t('confirm_acceptance')}</h2>
+                                    <p className="text-brand-brown/60 text-sm mb-6">{t('confirm_subtitle')}</p>
+
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-brand-brown uppercase mb-1">{t('est_completion')}</label>
+                                            <input
+                                                type="date"
+                                                value={estimatedDate}
+                                                onChange={(e) => setEstimatedDate(e.target.value)}
+                                                className="w-full bg-brand-brown/5 border-none rounded-xl p-3 text-brand-brown font-bold focus:ring-2 focus:ring-brand-brown/20"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-bold text-brand-brown uppercase mb-1">{t('offer_discount')}</label>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="10"
+                                                    value={discount}
+                                                    onChange={(e) => setDiscount(Math.min(10, Math.max(0, parseInt(e.target.value) || 0)))}
+                                                    className="w-20 bg-brand-brown/5 border-none rounded-xl p-3 text-brand-brown font-bold focus:ring-2 focus:ring-brand-brown/20 text-center"
+                                                />
+                                                <span className="text-sm font-bold text-brand-brown">%</span>
+                                                <span className="text-xs text-brand-brown/40 ml-2">({t('applied_mfg')})</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-6 bg-gray-50 p-4 rounded-xl space-y-2 border border-gray-100">
+                                        <div className="flex justify-between text-sm text-brand-brown/60">
+                                            <span>{t('base_mfg')}:</span>
+                                            <span>₹{Math.round(selectedRequest.itemDetails.conversionDetails?.cost_breakdown?.base_manufacturing_cost || 0)}</span>
+                                        </div>
+                                        {discount > 0 && (
+                                            <div className="flex justify-between text-sm text-red-500">
+                                                <span>{t('discount')} ({discount}%):</span>
+                                                <span>-₹{Math.round((selectedRequest.itemDetails.conversionDetails?.cost_breakdown?.base_manufacturing_cost || 0) * (discount / 100))}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between font-bold text-brand-brown pt-2 border-t border-dashed border-gray-300">
+                                            <span>{t('your_earnings')}:</span>
+                                            <span>₹{Math.round((selectedRequest.itemDetails.conversionDetails?.cost_breakdown?.base_manufacturing_cost || 0) * (1 - discount / 100))}</span>
+                                        </div>
+                                        {selectedRequest.itemDetails.conversionDetails?.includeLogistics && (
+                                            <div className="flex justify-between text-xs text-brand-brown/40 pt-1">
+                                                <span>{t('logistics_payout')}:</span>
+                                                <span>+₹{selectedRequest.itemDetails.conversionDetails.cost_breakdown.logistics_cost}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-between text-xs text-brand-brown/40 pt-1">
+                                            <span>{t('platform_comm')} ({(calculateFinalCosts(selectedRequest)?.commissionRate * 100).toFixed(1)}%):</span>
+                                            <span>+₹{calculateFinalCosts(selectedRequest)?.commission}</span>
+                                        </div>
+                                        <div className="flex justify-between font-bold text-lg text-brand-green pt-2 mt-1 border-t border-gray-200">
+                                            <span>{t('cust_pays')}:</span>
+                                            <span>₹{Math.ceil(calculateFinalCosts(selectedRequest)?.finalCustomerTotal || 0)}</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-brand-brown/5 p-4 rounded-xl text-center">
+                                        <h3 className="text-sm font-bold text-brand-brown uppercase mb-1">{t('your_earning')}</h3>
+                                        <div className="text-3xl font-black text-brand-green">
+                                            ₹{Math.round((calculateFinalCosts(selectedRequest)?.finalVendorEarnings || 0) + (calculateFinalCosts(selectedRequest)?.commission || 0))}
+                                        </div>
+                                        <p className="text-xs text-brand-brown/40 mt-1 font-bold">
+                                            (including platform fee)
+                                        </p>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3 mt-6">
+                                        <button
+                                            onClick={() => setIsAccepting(false)}
+                                            className="py-3 text-brand-brown font-bold hover:bg-brand-brown/5 rounded-xl transition-colors"
+                                        >
+                                            {t('cancel')}
+                                        </button>
+                                        <button
+                                            onClick={confirmAcceptance}
+                                            disabled={!estimatedDate}
+                                            className="py-3 text-white font-bold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg bg-brand-brown hover:bg-brand-brown-dark"
+                                        >
+                                            {t('confirm')}
+                                        </button>
+                                    </div>
+                                </>
                             )}
-                            <div className="flex justify-between font-bold text-brand-brown pt-2 border-t border-dashed border-gray-300">
-                                <span>{t('your_earnings')}:</span>
-                                <span>₹{Math.round((selectedRequest.itemDetails.conversionDetails?.cost_breakdown?.base_manufacturing_cost || 0) * (1 - discount / 100))}</span>
-                            </div>
-                            {selectedRequest.itemDetails.conversionDetails?.includeLogistics && (
-                                <div className="flex justify-between text-xs text-brand-brown/40 pt-1">
-                                    <span>{t('logistics_payout')}:</span>
-                                    <span>+₹{selectedRequest.itemDetails.conversionDetails.cost_breakdown.logistics_cost}</span>
-                                </div>
-                            )}
-                            <div className="flex justify-between text-xs text-brand-brown/40 pt-1">
-                                <span>{t('platform_comm')} ({(calculateFinalCosts(selectedRequest)?.commissionRate * 100).toFixed(1)}%):</span>
-                                <span>+₹{calculateFinalCosts(selectedRequest)?.commission}</span>
-                            </div>
-                            <div className="flex justify-between font-bold text-lg text-brand-green pt-2 mt-1 border-t border-gray-200">
-                                <span>{t('cust_pays')}:</span>
-                                <span>₹{Math.ceil(calculateFinalCosts(selectedRequest)?.finalCustomerTotal || 0)}</span>
-                            </div>
-                        </div>
-
-                        <div className="bg-brand-brown/5 p-4 rounded-xl text-center">
-                            <h3 className="text-sm font-bold text-brand-brown uppercase mb-1">{t('your_earning')}</h3>
-                            <div className="text-3xl font-black text-brand-green">
-                                ₹{Math.round((calculateFinalCosts(selectedRequest)?.finalVendorEarnings || 0) + (calculateFinalCosts(selectedRequest)?.commission || 0))}
-                            </div>
-                            <p className="text-xs text-brand-brown/40 mt-1 font-bold">
-                                (including platform fee)
-                            </p>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3 mt-6">
-                            <button
-                                onClick={() => setIsAccepting(false)}
-                                className="py-3 text-brand-brown font-bold hover:bg-brand-brown/5 rounded-xl transition-colors"
-                            >
-                                {t('cancel')}
-                            </button>
-                            <button
-                                onClick={confirmAcceptance}
-                                disabled={!estimatedDate}
-                                className="py-3 bg-brand-brown text-white font-bold rounded-xl hover:bg-brand-green transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
-                            >
-                                {t('confirm')}
-                            </button>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Chat Modal */}
-            {selectedRequest && selectedRequest.customerId && showChat && (
-                <ChatModal
-                    open={showChat}
-                    onClose={() => setShowChat(false)}
-                    orderId={selectedRequest.id}
-                    currentUserId={currentUser.uid}
-                    recipientName={customerDetails?.name || 'Customer'}
-                    receiverId={selectedRequest.customerId}
-                />
-            )}
-        </div>
+            {
+                selectedRequest && selectedRequest.customerId && showChat && (
+                    <ChatModal
+                        open={showChat}
+                        onClose={() => setShowChat(false)}
+                        orderId={selectedRequest.id}
+                        currentUserId={currentUser.uid}
+                        recipientName={customerDetails?.name || 'Customer'}
+                        receiverId={selectedRequest.customerId}
+                    />
+                )
+            }
+        </div >
     );
 }

@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { APILoader } from '@googlemaps/extended-component-library/react';
+// APILoader moved to App.jsx
 // Import the place picker web component which is a valid export
 import '@googlemaps/extended-component-library/place_picker.js';
 import { useTranslation } from 'react-i18next';
 
-const GOOGLE_MAPS_API_KEY = "AIzaSyAK8sTrmDW4atGdZIW91qi-ZNfkm-PD6cc"; // Provided by user
+// API Key managed in App.jsx now via APILoader context
 
 export default function LocationPicker({
     initialLocation,
@@ -137,7 +137,6 @@ export default function LocationPicker({
 
     return (
         <div className="w-full space-y-4">
-            <APILoader apiKey={GOOGLE_MAPS_API_KEY} solutionChannel="GMP_GE_mapsandplacesautocomplete_v2" />
 
             {!readOnly && (
                 <div className="bg-white p-2 rounded-xl border border-brand-brown/10 shadow-sm z-10 relative">
