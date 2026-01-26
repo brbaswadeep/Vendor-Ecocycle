@@ -44,94 +44,153 @@ function LocationPickerContent({
     useEffect(() => {
         if (!mapRef.current) return;
 
-        // Check if google maps is loaded
-        if (!window.google || !window.google.maps) {
-            console.warn("Google Maps API not loaded");
-            return;
-        }
+        const initMap = async () => {
+            // Check if google maps is loaded
+            if (!window.google || !window.google.maps) {
+                console.warn("Google Maps API not loaded");
+                return;
+            }
 
-        const defaultLocation = { lat: 20.5937, lng: 78.9629 }; // India center
-        const startLocation = initialLocation || defaultLocation;
+            try {
+                const { Map } = await window.google.maps.importLibrary("maps");
+                const { AdvancedMarkerElement } = await window.google.maps.importLibrary("marker");
+                const { Geocoder } = await window.google.maps.importLibrary("geocoding");
 
-        const initializedMap = new window.google.maps.Map(mapRef.current, {
-            center: startLocation,
-            zoom: initialLocation ? 17 : 5,
-            mapId: "DEMO_MAP_ID", // Required for AdvancedMarkerElement
-            disableDefaultUI: true,
-            zoomControl: true,
-        });
+                const geocoder = new Geocoder();
 
-        setMap(initializedMap);
+                const defaultLocation = { lat: 20.5937, lng: 78.9629 }; // India center
+                const startLocation = initialLocation || defaultLocation;
 
-        // Initialize marker
-        const { AdvancedMarkerElement } = window.google.maps.marker;
-        const marker = new AdvancedMarkerElement({
-            map: initializedMap,
-            position: startLocation,
-            gmpDraggable: !readOnly,
-            title: readOnly ? t('pickup_location_title') : t('drag_hint')
-        });
-        markerRef.current = marker;
+                const initializedMap = new Map(mapRef.current, {
+                    center: startLocation,
+                    zoom: initialLocation ? 17 : 5,
+                    mapId: "DEMO_MAP_ID", // Required for AdvancedMarkerElement
+                    disableDefaultUI: true,
+                    zoomControl: true,
+                });
 
-        // Handle marker drag
-        if (!readOnly) {
-            marker.addListener('dragend', async () => {
-                const position = marker.position;
-                if (position) {
-                    const lat = position.lat;
-                    const lng = position.lng;
-                    // Simplify: just passing lat/lng. Geocoding would happen here ideally if address is needed right away
-                    // but keeping it simple as per Ecocycle implementation for now, or we can restore geocoding if needed.
-                    // The Ecocycle version passed {lat, lng}. The vendor-panel version expected structured object?
-                    // Let's look at vendor-panel usage. It previously passed { address, coordinates: { lat, lng } }.
-                    // The previous implementation used a geocoder.
-                    // To maintain full compatibility with vendor-panel helpers, we might want to geocode.
-                    // However, the prompt asked to "use the google map api of the ecocycle folder same in the vendor pannel".
-                    // Ecocycle logic passes {lat, lng} (and address from picker).
-                    // I will stick to the Ecocycle logic mostly, but let's check if we can easily add address from picker.
-                    // For drag/click, Ecocycle only passed {lat, lng}.
-                    // If strict parity with Ecocycle is what's asked, I will utilize that.
-                    // Note: previous implementation tried to geocode on drag.
+                setMap(initializedMap);
 
-                    if (onLocationSelect) {
-                        onLocationSelect({ lat, lng });
+                // Initialize marker
+                const marker = new AdvancedMarkerElement({
+                    map: initializedMap,
+                    position: startLocation,
+                    gmpDraggable: !readOnly,
+                    title: readOnly ? t('pickup_location_title') : t('drag_hint')
+                });
+                markerRef.current = marker;
+
+                // Function to handle location update
+                const handleLocationUpdate = async (latLng) => {
+                    if (!latLng) return;
+
+                    const lat = typeof latLng.lat === 'function' ? latLng.lat() : latLng.lat;
+                    const lng = typeof latLng.lng === 'function' ? latLng.lng() : latLng.lng;
+
+                    // Geocode to get address
+                    try {
+                        const response = await geocoder.geocode({ location: { lat, lng } });
+                        if (response.results[0]) {
+                            if (onLocationSelect) {
+                                onLocationSelect({
+                                    address: response.results[0].formatted_address,
+                                    coordinates: { lat, lng },
+                                    // keep flat properties for compatibility if needed
+                                    lat,
+                                    lng
+                                });
+                            }
+                        } else {
+                            // Fallback if no address found
+                            if (onLocationSelect) {
+                                onLocationSelect({
+                                    address: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+                                    coordinates: { lat, lng },
+                                    lat,
+                                    lng
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Geocoding failed:", e);
+                        // Fallback on error
+                        if (onLocationSelect) {
+                            onLocationSelect({
+                                address: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+                                coordinates: { lat, lng },
+                                lat,
+                                lng
+                            });
+                        }
                     }
+                };
+
+                // Handle marker drag
+                if (!readOnly) {
+                    marker.addListener('dragend', async () => {
+                        await handleLocationUpdate(marker.position);
+                    });
+
+                    initializedMap.addListener('click', async (e) => {
+                        if (e.latLng) {
+                            marker.position = e.latLng;
+                            await handleLocationUpdate(e.latLng);
+                        }
+                    });
                 }
-            });
 
-            initializedMap.addListener('click', (e) => {
-                if (e.latLng) {
-                    marker.position = e.latLng;
-                    const lat = e.latLng.lat();
-                    const lng = e.latLng.lng();
-                    if (onLocationSelect) {
-                        onLocationSelect({ lat, lng });
-                    }
-                }
-            });
-        }
+                // Setup Place Picker
+                if (pickerRef.current) {
+                    const setupPicker = () => {
+                        pickerRef.current.addEventListener('gmpx-placechange', () => {
+                            const place = pickerRef.current.place;
+                            if (place && place.location) {
+                                const location = place.location;
+                                initializedMap.setCenter(location);
+                                initializedMap.setZoom(17);
+                                marker.position = location;
 
-        // Setup Place Picker
-        if (pickerRef.current) {
-            pickerRef.current.addEventListener('gmpx-placechange', () => {
-                const place = pickerRef.current.place;
-                if (place && place.location) {
-                    const location = place.location;
-                    initializedMap.setCenter(location);
-                    initializedMap.setZoom(17);
-                    marker.position = location;
-
-                    if (onLocationSelect) {
-                        // Ecocycle version passes this structure:
-                        onLocationSelect({
-                            lat: location.lat(),
-                            lng: location.lng(),
-                            address: place.formattedAddress,
-                            name: place.displayName
+                                if (onLocationSelect) {
+                                    onLocationSelect({
+                                        address: place.formattedAddress,
+                                        coordinates: {
+                                            lat: location.lat(),
+                                            lng: location.lng()
+                                        },
+                                        lat: location.lat(),
+                                        lng: location.lng(),
+                                        name: place.displayName
+                                    });
+                                }
+                            }
                         });
-                    }
+                    };
+
+                    // Try to setup immediately, and safe check
+                    setupPicker();
                 }
-            });
+
+            } catch (error) {
+                console.error("Error loading Google Maps libraries:", error);
+            }
+        };
+
+        if (window.google && window.google.maps) {
+            initMap();
+        } else {
+            // Poll or wait? The APILoader should handle this. 
+            // Ideally we shouldn't rely on polling if possible, but 
+            // without a callback from APILoader, checking once might fail if script loads async.
+            // Since APILoader is used, it appends script. 
+            // We can check every 100ms like before, OR just assume Init is called when ready.
+            // But let's try a simple interval for robustness like before, but cleaner.
+            const interval = setInterval(() => {
+                if (window.google && window.google.maps) {
+                    clearInterval(interval);
+                    initMap();
+                }
+            }, 100);
+            return () => clearInterval(interval);
         }
 
         return () => {
