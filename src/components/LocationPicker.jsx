@@ -127,7 +127,8 @@ function LocationPickerContent({
 
                 // Handle marker drag
                 if (!readOnly) {
-                    marker.addListener('dragend', async () => {
+                    // Use addEventListener for AdvancedMarkerElement
+                    marker.addEventListener('dragend', async () => {
                         await handleLocationUpdate(marker.position);
                     });
 
@@ -178,12 +179,7 @@ function LocationPickerContent({
         if (window.google && window.google.maps) {
             initMap();
         } else {
-            // Poll or wait? The APILoader should handle this. 
-            // Ideally we shouldn't rely on polling if possible, but 
-            // without a callback from APILoader, checking once might fail if script loads async.
-            // Since APILoader is used, it appends script. 
-            // We can check every 100ms like before, OR just assume Init is called when ready.
-            // But let's try a simple interval for robustness like before, but cleaner.
+            // Check periodically
             const interval = setInterval(() => {
                 if (window.google && window.google.maps) {
                     clearInterval(interval);
