@@ -135,67 +135,64 @@ export default function Requests() {
         const isSellRequest = request.itemDetails.requestType === 'sell';
 
         // --- Logic for SELL Requests (Vendor Buys) ---
-        // --- Logic for SELL Requests (Vendor Buys) ---
         if (isSellRequest) {
             const askingPrice = parseFloat(request.itemDetails.askingPrice || 0);
 
-            // Commission Splitting: 1/2 paid by Customer, 1/2 by Vendor
-            // Total Platform Fee (e.g., 10%)
-            let commissionRate = 0.10;
-            const totalCommission = Math.round(askingPrice * commissionRate);
-            const vendorShare = totalCommission / 2;
-            const customerShare = totalCommission / 2;
-
-            const vendorPays = askingPrice + vendorShare; // Vendor Price + Their Share of Fee
-            const customerEarnings = askingPrice - customerShare; // Customer gets Price - Their Share
+            // For Sell Requests, we keep it simple as per user request to "fetch perfect price".
+            // Vendor Pays the Asking Price. 
+            // If commission applies to seller (Customer), that's calculated on their side.
+            // Here we display what the Vendor Pays.
 
             return {
                 isSellRequest: true,
                 originalBaseMfg: 0,
                 discountAmount: 0,
                 discountedMfgPrice: 0,
-                commission: totalCommission,
-                commissionRate,
+                commission: 0, // Commission is usually deducted from Seller's payout or added. 
+                // For now, Vendor pays Asking Price. 
+                commissionRate: 0.02,
                 logistics: 0,
-                finalVendorEarnings: -vendorPays, // Negative because it's a cost
-                finalVendorCost: vendorPays, // TOTAL Vendor Cost
+                finalVendorEarnings: -askingPrice, // Cost to Vendor
+                finalVendorCost: askingPrice, // Total Vendor Pays
                 finalCustomerTotal: 0,
-                customerEarnings: customerEarnings // Net for Customer
+                customerEarnings: askingPrice // Customer receives
             };
         }
 
         // --- Logic for SERVICE Requests (Vendor Provides Service) ---
         if (!request.itemDetails.conversionDetails?.cost_breakdown) return null;
 
+        // Base Price from Customer/AI Analysis
         const originalBaseMfg = Math.round(request.itemDetails.conversionDetails.cost_breakdown.base_manufacturing_cost);
 
         // 1. Calculate Discount (Max 10% on Mfg Price)
         const discountAmount = Math.round(originalBaseMfg * (customDiscount / 100));
-        const discountedMfgPrice = originalBaseMfg - discountAmount;
+        const priceAfterDiscount = originalBaseMfg - discountAmount;
 
-        // 2. Calculate Commission on DISCOUNTED Price based on Rating
-        const rating = parseFloat(currentUser.rating || 0);
-        let commissionRate = 0.02;
-        if (rating >= 4.5) commissionRate = 0.01;
-        else if (rating >= 4.0) commissionRate = 0.015;
+        // 2. Strict 2% Commission Logic (User: "Vendor will receive price - 2%")
+        const commissionRate = 0.02;
+        const commission = Math.round(priceAfterDiscount * commissionRate);
 
-        const commission = Math.round(discountedMfgPrice * commissionRate);
-
-        // 3. Logistics
+        // 3. Logistics (Pass-through)
         let logistics = 0;
         if (request.itemDetails.conversionDetails.includeLogistics) {
             logistics = Math.round(request.itemDetails.conversionDetails.cost_breakdown.logistics_cost);
         }
 
         // 4. Final Totals
-        const finalCustomerTotal = discountedMfgPrice + commission + logistics;
-        const finalVendorEarnings = discountedMfgPrice; // Simplified
+        // Vendor Earns = Price - Commission
+        const finalVendorEarnings = priceAfterDiscount - commission;
+
+        // Customer Pays = Price + Logistics
+        // (Note: Commission is deducted from Vendor's earning, NOT added to Customer's price in this model,
+        // matching the "Vendor receives Price - 2%" requirement)
+        const finalCustomerTotal = priceAfterDiscount + logistics;
 
         return {
             isSellRequest: false,
             originalBaseMfg,
             discountAmount,
-            discountedMfgPrice,
+            discountedMfgPrice: priceAfterDiscount,
             commission,
             commissionRate,
             logistics,
@@ -461,9 +458,9 @@ export default function Requests() {
                                     <div className="bg-green-50 p-3 rounded-xl border border-green-100">
                                         <div className="text-xs font-bold text-green-700 uppercase">{t('you_earn')}</div>
                                         <div className="font-bold text-2xl text-green-800">
-                                            ₹{Math.round((calculateFinalCosts(request, 0)?.finalVendorEarnings || 0) + (calculateFinalCosts(request, 0)?.commission || 0))}
+                                            ₹{Math.round(calculateFinalCosts(request, 0)?.finalVendorEarnings || 0)}
                                         </div>
-                                        <div className="text-[10px] text-green-600 mt-1">{t('your_direct_earning')} <span className="opacity-70">(incl. comm)</span></div>
+                                        <div className="text-[10px] text-green-600 mt-1">{t('net_earnings')} <span className="opacity-70">(after 2% fee)</span></div>
                                     </div>
                                 )}
                                 <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
@@ -612,7 +609,26 @@ export default function Requests() {
                                         </div>
                                     </div>
 
-                                    {/* Processing Instructions */}
+                                    {/* Step-by-Step Instructions */}
+                                    {selectedRequest.itemDetails.conversionDetails?.step_by_step_instructions && (
+                                        <div className="bg-white p-5 rounded-xl border border-brand-brown/10 shadow-sm">
+                                            <div className="text-xs font-bold text-brand-brown/60 uppercase mb-4 flex items-center gap-2">
+                                                <span>🛠️</span> {t('process_guide') || 'How to Make it'}
+                                            </div>
+                                            <div className="space-y-4">
+                                                {selectedRequest.itemDetails.conversionDetails.step_by_step_instructions.map((step, i) => (
+                                                    <div key={i} className="flex gap-4 text-sm text-brand-brown">
+                                                        <div className="w-6 h-6 rounded-full bg-brand-brown/10 text-brand-brown font-bold flex items-center justify-center flex-shrink-0 text-xs">
+                                                            {i + 1}
+                                                        </div>
+                                                        <p className="pt-0.5 leading-relaxed">{step}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Processing Instructions (Legacy/Summary) */}
                                     <div>
                                         <div className="text-xs font-bold text-brand-brown/60 uppercase mb-2">{t('processing_steps')}</div>
                                         <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 text-sm text-brand-brown leading-relaxed">
@@ -799,23 +815,19 @@ export default function Requests() {
                                                 <span>-₹{Math.round((selectedRequest.itemDetails.conversionDetails?.cost_breakdown?.base_manufacturing_cost || 0) * (discount / 100))}</span>
                                             </div>
                                         )}
-                                        <div className="flex justify-between font-bold text-brand-brown pt-2 border-t border-dashed border-gray-300">
-                                            <span>{t('your_earnings')}:</span>
-                                            <span>₹{Math.round((selectedRequest.itemDetails.conversionDetails?.cost_breakdown?.base_manufacturing_cost || 0) * (1 - discount / 100))}</span>
+                                        <div className="flex justify-between text-sm text-brand-brown/60">
+                                            <span>Platform Fee (2%):</span>
+                                            <span className="text-red-500">-₹{calculateFinalCosts(selectedRequest)?.commission}</span>
                                         </div>
-                                        {selectedRequest.itemDetails.conversionDetails?.includeLogistics && (
-                                            <div className="flex justify-between text-xs text-brand-brown/40 pt-1">
-                                                <span>{t('logistics_payout')}:</span>
-                                                <span>+₹{selectedRequest.itemDetails.conversionDetails.cost_breakdown.logistics_cost}</span>
-                                            </div>
-                                        )}
-                                        <div className="flex justify-between text-xs text-brand-brown/40 pt-1">
-                                            <span>{t('platform_comm')} ({(calculateFinalCosts(selectedRequest)?.commissionRate * 100).toFixed(1)}%):</span>
-                                            <span>+₹{calculateFinalCosts(selectedRequest)?.commission}</span>
+
+                                        <div className="border-t border-brand-brown/10 my-2"></div>
+
+                                        <div className="flex justify-between text-lg font-black text-brand-brown">
+                                            <span>{t('you_will_earn')}:</span>
+                                            <span className="text-brand-green">₹{calculateFinalCosts(selectedRequest)?.finalVendorEarnings}</span>
                                         </div>
-                                        <div className="flex justify-between font-bold text-lg text-brand-green pt-2 mt-1 border-t border-gray-200">
-                                            <span>{t('cust_pays')}:</span>
-                                            <span>₹{Math.ceil(calculateFinalCosts(selectedRequest)?.finalCustomerTotal || 0)}</span>
+                                        <div className="text-center text-[10px] text-brand-brown/40 pt-1">
+                                            (Customer pays ₹{calculateFinalCosts(selectedRequest)?.finalCustomerTotal})
                                         </div>
                                     </div>
 
