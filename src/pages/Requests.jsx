@@ -559,27 +559,63 @@ export default function Requests() {
                                         </div>
                                     )}
 
-                                    {/* Use Case */}
-                                    <div className="bg-brand-brown/5 p-4 rounded-xl border border-brand-brown/10">
-                                        <div className="text-xs font-bold text-brand-brown/60 uppercase mb-2">{t('daily_use_case')}</div>
-                                        <p className="text-brand-brown italic">"{selectedRequest.itemDetails.conversionDetails?.daily_use_case}"</p>
-                                    </div>
+                                    {/* Use Case & Analysis - HIDE for Buy Requests to simplify */}
+                                    {selectedRequest.itemDetails.requestType !== 'sell' && (
+                                        <>
+                                            <div className="bg-brand-brown/5 p-4 rounded-xl border border-brand-brown/10">
+                                                <div className="text-xs font-bold text-brand-brown/60 uppercase mb-2">{t('daily_use_case')}</div>
+                                                <p className="text-brand-brown italic">"{selectedRequest.itemDetails.conversionDetails?.daily_use_case}"</p>
+                                            </div>
 
-                                    {/* Analysis Factors */}
-                                    {selectedRequest.itemDetails.conversionDetails?.analysis_factors && (
-                                        <div className="grid grid-cols-3 gap-4">
-                                            <div className="border p-3 rounded-xl text-center bg-gray-50">
-                                                <div className="text-xs font-bold text-gray-400 uppercase">{t('yield')}</div>
-                                                <div className="text-lg font-bold text-brand-brown">{selectedRequest.itemDetails.conversionDetails.analysis_factors.yield_factor}</div>
+                                            {selectedRequest.itemDetails.conversionDetails?.analysis_factors && (
+                                                <div className="grid grid-cols-3 gap-4">
+                                                    <div className="border p-3 rounded-xl text-center bg-gray-50">
+                                                        <div className="text-xs font-bold text-gray-400 uppercase">{t('yield')}</div>
+                                                        <div className="text-lg font-bold text-brand-brown">{selectedRequest.itemDetails.conversionDetails.analysis_factors.yield_factor}</div>
+                                                    </div>
+                                                    <div className="border p-3 rounded-xl text-center bg-gray-50">
+                                                        <div className="text-xs font-bold text-gray-400 uppercase">{t('quality')}</div>
+                                                        <div className="text-lg font-bold text-brand-brown">{selectedRequest.itemDetails.conversionDetails.analysis_factors.quality_grade}</div>
+                                                    </div>
+                                                    <div className="border p-3 rounded-xl text-center bg-gray-50">
+                                                        <div className="text-xs font-bold text-gray-400 uppercase">{t('weight')}</div>
+                                                        <div className="text-lg font-bold text-brand-brown">{selectedRequest.itemDetails.conversionDetails.analysis_factors.usable_weight_kg} kg</div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+
+                                    {/* Buy Request Specific Details */}
+                                    {selectedRequest.itemDetails.requestType === 'sell' && (
+                                        <div className="grid grid-cols-2 gap-6">
+                                            <div className="bg-brand-brown/5 p-4 rounded-xl border border-brand-brown/10">
+                                                <div className="text-xs font-bold text-brand-brown/60 uppercase mb-2">Item Details</div>
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between text-sm">
+                                                        <span className="opacity-70">Material:</span>
+                                                        <span className="font-bold capitalize">{selectedRequest.itemDetails.material}</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-sm">
+                                                        <span className="opacity-70">Weight:</span>
+                                                        <span className="font-bold">{selectedRequest.itemDetails.analysis?.quantity_estimation?.approximate_weight_kg || 'N/A'} kg</span>
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div className="border p-3 rounded-xl text-center bg-gray-50">
-                                                <div className="text-xs font-bold text-gray-400 uppercase">{t('quality')}</div>
-                                                <div className="text-lg font-bold text-brand-brown">{selectedRequest.itemDetails.conversionDetails.analysis_factors.quality_grade}</div>
-                                            </div>
-                                            <div className="border p-3 rounded-xl text-center bg-gray-50">
-                                                <div className="text-xs font-bold text-gray-400 uppercase">{t('weight')}</div>
-                                                <div className="text-lg font-bold text-brand-brown">{selectedRequest.itemDetails.conversionDetails.analysis_factors.usable_weight_kg} kg</div>
-                                            </div>
+                                            {selectedRequest.itemImage ? (
+                                                <div className="relative group overflow-hidden rounded-xl border border-brand-brown/10">
+                                                    <img
+                                                        src={selectedRequest.itemImage}
+                                                        alt="Item"
+                                                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                                    />
+                                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors pointer-events-none" />
+                                                </div>
+                                            ) : (
+                                                <div className="bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 text-xs">
+                                                    No Image
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
@@ -864,18 +900,15 @@ export default function Requests() {
             }
 
             {/* Chat Modal */}
-            {
-                selectedRequest && selectedRequest.customerId && showChat && (
-                    <ChatModal
-                        open={showChat}
-                        onClose={() => setShowChat(false)}
-                        orderId={selectedRequest.id}
-                        currentUserId={currentUser.uid}
-                        recipientName={customerDetails?.name || 'Customer'}
-                        receiverId={selectedRequest.customerId}
-                    />
-                )
-            }
-        </div >
+            {selectedRequest && customerDetails && showChat && (
+                <ChatModal
+                    orderId={selectedRequest.id}
+                    currentUser={currentUser}
+                    onClose={() => setShowChat(false)}
+                    recipientName={customerDetails.name}
+                    receiverId={selectedRequest.customerId}
+                />
+            )}
+        </div>
     );
 }

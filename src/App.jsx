@@ -8,6 +8,7 @@ import Profile from './pages/Profile';
 import Requests from './pages/Requests';
 import Earnings from './pages/Earnings';
 import Messages from './pages/Messages';
+import MyProducts from './pages/MyProducts';
 import Layout from './components/Layout';
 
 function PrivateRoute({ children }) {
@@ -21,7 +22,7 @@ function PrivateRoute({ children }) {
 }
 
 function App() {
-  const GOOGLE_MAPS_API_KEY = "AIzaSyBjhn7f7atke2N588iXT_i67Bgx3bKQZN8"; // Should typically be in .env
+  const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
   return (
     <AuthProvider>
@@ -70,6 +71,22 @@ function App() {
               element={
                 <PrivateRoute>
                   <Messages />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/messages"
+              element={
+                <PrivateRoute>
+                  <Messages />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/products"
+              element={
+                <PrivateRoute>
+                  <MyProducts />
                 </PrivateRoute>
               }
             />
