@@ -49,28 +49,29 @@ export default function Layout() {
 
                         {/* Navigation Links Removed per new design request */}
 
-                        <div className="flex items-center gap-1">
-                            <Link to="/products" className="flex items-center gap-2 bg-brand-green/10 text-brand-green hover:bg-brand-green/20 px-3 py-2 rounded-xl text-sm font-bold transition">
+                        <div className="flex items-center gap-3">
+                            {/* My Shop Link - Moved to Right & Styled */}
+                            <Link to="/products" className="flex items-center gap-2 bg-brand-brown/5 hover:bg-brand-brown/10 px-3 py-2 rounded-xl transition-colors text-brand-brown font-medium text-sm">
                                 <Store className="w-4 h-4" />
                                 <span className="hidden sm:inline">My Shop</span>
                             </Link>
+
+                            {/* Language Selector */}
+                            <LanguageSelector t={t} i18n={i18n} currentUser={currentUser} />
+
+                            {/* Profile Link */}
+                            <Link
+                                to="/profile"
+                                className="flex items-center gap-2 text-brand-brown hover:text-brand-orange transition-colors"
+                            >
+                                <div className="w-8 h-8 rounded-full bg-brand-brown text-white flex items-center justify-center font-bold text-sm">
+                                    {currentUser?.businessName?.[0]?.toUpperCase() || <Store className="w-4 h-4" />}
+                                </div>
+                                <span className="hidden sm:block font-medium truncate max-w-[150px]">
+                                    {currentUser?.businessName || currentUser?.email}
+                                </span>
+                            </Link>
                         </div>
-
-                        {/* Language Selector */}
-                        <LanguageSelector t={t} i18n={i18n} currentUser={currentUser} />
-
-                        {/* Profile Link */}
-                        <Link
-                            to="/profile"
-                            className="flex items-center gap-2 text-brand-brown hover:text-brand-orange transition-colors"
-                        >
-                            <div className="w-8 h-8 rounded-full bg-brand-brown text-white flex items-center justify-center font-bold text-sm">
-                                {currentUser?.businessName?.[0]?.toUpperCase() || <Store className="w-4 h-4" />}
-                            </div>
-                            <span className="hidden sm:block font-medium truncate max-w-[150px]">
-                                {currentUser?.businessName || currentUser?.email}
-                            </span>
-                        </Link>
                     </div>
                 </div>
             </nav>

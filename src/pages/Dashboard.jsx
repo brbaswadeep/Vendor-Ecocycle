@@ -104,29 +104,26 @@ export default function Dashboard() {
                 </div>
 
                 {/* Top Row: Status Overview Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                     <StatusCard
                         title={t('pending_requests')}
                         count={stats.pending}
-                        icon={<Package className="w-8 h-8" />}
-                        gradient="from-orange-400 to-orange-600"
-                        bgIcon="text-white/20"
+                        icon={<Package className="w-6 h-6 text-brand-orange" />}
+                        colorClass="border-brand-orange text-brand-orange"
                         onClick={() => navigate('/requests?filter=pending')}
                     />
                     <StatusCard
                         title={t('approved_work')}
                         count={stats.accepted}
-                        icon={<CheckCircle className="w-8 h-8" />}
-                        gradient="from-green-500 to-green-700"
-                        bgIcon="text-white/20"
+                        icon={<CheckCircle className="w-6 h-6 text-brand-green" />}
+                        colorClass="border-brand-green text-brand-green"
                         onClick={() => navigate('/requests?filter=accepted')}
                     />
                     <StatusCard
                         title={t('denied_completed')}
                         count={stats.declined}
-                        icon={<XCircle className="w-8 h-8" />}
-                        gradient="from-red-500 to-red-700"
-                        bgIcon="text-white/20"
+                        icon={<XCircle className="w-6 h-6 text-brand-red" />}
+                        colorClass="border-brand-red text-brand-red"
                         onClick={() => navigate('/requests?filter=declined')}
                     />
                 </div>
@@ -188,29 +185,28 @@ export default function Dashboard() {
     );
 }
 
-function StatusCard({ title, count, icon, gradient, bgIcon, onClick }) {
+function StatusCard({ title, count, icon, colorClass, onClick }) {
     return (
         <button
             onClick={onClick}
-            className={`bg-gradient-to-br ${gradient} p-6 rounded-3xl shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all duration-300 relative overflow-hidden text-left group w-full`}
+            className={`relative overflow-hidden group p-5 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 text-left w-full border ${colorClass} bg-white`}
         >
-            <div className={`absolute -right-4 -top-4 ${bgIcon} opacity-20 transform rotate-12 group-hover:scale-125 transition-transform duration-500`}>
-                <div className="w-32 h-32">{icon}</div>
+            <div className={`absolute right-[-20px] top-[-20px] opacity-10 transform rotate-12 group-hover:scale-110 transition-transform duration-500`}>
+                {/* Background Icon Effect */}
+                {React.cloneElement(icon, { size: 100 })}
             </div>
 
-            <div className="relative z-10 text-white">
-                <div className="flex items-center justify-between mb-4">
-                    <div className="p-3 bg-white/20 backdrop-blur-sm rounded-2xl w-fit">
+            <div className="relative z-10 flex flex-col h-full justify-between">
+                <div className="flex items-center justify-between mb-3">
+                    <div className={`p-2 rounded-xl bg-opacity-10 ${colorClass.replace('border-', 'bg-').replace('text-', 'text-')}`}>
                         {icon}
-                    </div>
-                    <div className="flex items-center gap-1 bg-black/20 px-3 py-1 rounded-full text-xs font-bold backdrop-blur-sm">
-                        <span>View</span>
-                        <ArrowRight className="w-3 h-3" />
                     </div>
                 </div>
 
-                <h3 className="text-lg font-medium opacity-90 mb-1">{title}</h3>
-                <div className="text-4xl font-extrabold tracking-tight">{count}</div>
+                <div>
+                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-1">{title}</h3>
+                    <div className="text-3xl font-extrabold text-brand-brown">{count}</div>
+                </div>
             </div>
         </button>
     );

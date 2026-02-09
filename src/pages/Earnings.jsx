@@ -42,8 +42,13 @@ export default function Earnings() {
                 if (data.status === 'accepted' || data.status === 'completed') {
                     fetchedOrders.push({ id: doc.id, ...data });
 
-                    // Show Net Earnings to vendor as requested for Financial Overview
-                    const earnings = data.finalQuote?.finalVendorEarnings || 0;
+                    // Handle different data structure for Sell vs Service requests
+                    const isSell = !!data.finalQuote?.vendorPays;
+
+                    // Show Net Earnings to vendor
+                    // For Sell requests (Expense), Earnings is 0 (or could be negative if tracking net flow, but standard Earnings = Income).
+                    // We will exclude Buy costs from "Total Earnings" stat.
+                    const earnings = isSell ? 0 : (data.finalQuote?.finalVendorEarnings || 0);
                     const comm = data.finalQuote?.platformFee || 0;
 
                     totalEarn += earnings;
@@ -52,7 +57,7 @@ export default function Earnings() {
             });
 
             // Sort manually if index missing
-            fetchedOrders.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds);
+            fetchedOrders.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
             setOrders(fetchedOrders);
             setStats({
@@ -125,25 +130,31 @@ export default function Earnings() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-brand-brown/5">
-                            {orders.map((order) => (
-                                <tr key={order.id} className="hover:bg-brand-cream/10 transition-colors">
-                                    <td className="px-6 py-4 font-medium text-brand-brown">
-                                        {order.createdAt?.toDate ? order.createdAt.toDate().toLocaleDateString() : 'N/A'}
-                                    </td>
-                                    <td className="px-6 py-4 text-sm text-brand-brown/70 font-mono">
-                                        {order.id.slice(0, 8)}...
-                                    </td>
-                                    <td className="px-6 py-4 font-bold text-brand-brown">
-                                        ₹{Math.round(order.finalQuote?.totalCustomerPrice || 0)}
-                                    </td>
-                                    <td className="px-6 py-4 font-bold text-green-600">
-                                        ₹{Math.round(order.finalQuote?.finalVendorEarnings || 0)}
-                                    </td>
-                                    <td className="px-6 py-4 font-bold text-red-500 text-right">
-                                        ₹{Math.round(order.finalQuote?.platformFee || 0)}
-                                    </td>
-                                </tr>
-                            ))}
+                            {orders.map((order) => {
+                                const isSell = !!order.finalQuote?.vendorPays;
+                                const orderValue = isSell ? (order.finalQuote?.totalTransaction || 0) : (order.finalQuote?.totalCustomerPrice || 0);
+                                const share = isSell ? -(order.finalQuote?.vendorPays || 0) : (order.finalQuote?.finalVendorEarnings || 0);
+
+                                return (
+                                    <tr key={order.id} className="hover:bg-brand-cream/10 transition-colors">
+                                        <td className="px-6 py-4 font-medium text-brand-brown">
+                                            {order.createdAt?.toDate ? order.createdAt.toDate().toLocaleDateString() : 'N/A'}
+                                        </td>
+                                        <td className="px-6 py-4 text-sm text-brand-brown/70 font-mono">
+                                            {order.id.slice(0, 8)}...
+                                        </td>
+                                        <td className="px-6 py-4 font-bold text-brand-brown">
+                                            ₹{Math.round(orderValue)}
+                                        </td>
+                                        <td className={`px-6 py-4 font-bold ${isSell ? 'text-red-500' : 'text-green-600'}`}>
+                                            {isSell ? '-' : ''}₹{Math.abs(Math.round(share))}
+                                        </td>
+                                        <td className="px-6 py-4 font-bold text-red-500 text-right">
+                                            ₹{Math.round(order.finalQuote?.platformFee || 0)}
+                                        </td>
+                                    </tr>
+                                )
+                            })}
                             {orders.length === 0 && (
                                 <tr>
                                     <td colSpan="5" className="px-6 py-12 text-center text-brand-brown/40 font-medium">

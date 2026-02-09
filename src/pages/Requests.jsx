@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
-import { collection, query, where, getDocs, updateDoc, doc, orderBy, getDoc } from 'firebase/firestore';
-import { Loader2, MapPin, CheckCircle, XCircle, Clock, Package, Calendar, Truck, PlayCircle, Hourglass, CheckSquare, User, Phone, MessageCircle, Inbox } from 'lucide-react';
+import { collection, query, where, getDocs, updateDoc, deleteDoc, doc, orderBy, getDoc } from 'firebase/firestore';
+import { Loader2, MapPin, CheckCircle, XCircle, Clock, Package, Calendar, Truck, PlayCircle, Hourglass, CheckSquare, User, Phone, MessageCircle, Inbox, Trash2, ArrowRight } from 'lucide-react';
+
+// ... (existing code)
+
 import { useLocation } from 'react-router-dom';
 import ChatModal from '../components/ChatModal';
 import { useTranslation } from 'react-i18next';
@@ -25,6 +28,47 @@ export default function Requests() {
     // Core Data
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [unsplashImage, setUnsplashImage] = useState(null);
+
+    // ... existing filter state ...
+
+    // Fetch Unsplash Image
+    const fetchUnsplashImage = async (query) => {
+        if (!query) return;
+        try {
+            const accessKey = import.meta.env.VITE_UNSPLASH_ACCESS_KEY;
+            // console.log("Unsplash Key Present:", !!accessKey);
+            if (!accessKey) {
+                console.warn("Unsplash Access Key is missing! Please restart the dev server.");
+                // alert("Please restart your development server to load the new API key."); // Optional: Use alert to force attention
+                return;
+            }
+
+            const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&client_id=${accessKey}`;
+            // console.log("Fetching Unsplash Image:", url);
+
+            const res = await fetch(url);
+            if (!res.ok) {
+                if (res.status === 401) {
+                    console.error("Unsplash API Error 401: Unauthorized. Check API Key.");
+                    alert("Unsplash Authorization Failed. Please check the API key in .env and restart the server.");
+                }
+                throw new Error(`Unsplash API error: ${res.status}`);
+            }
+
+            const data = await res.json();
+            if (data.results && data.results.length > 0) {
+                // console.log("Unsplash Image Found:", data.results[0].urls.regular);
+                setUnsplashImage(data.results[0].urls.regular);
+            } else {
+                // console.log("No Unsplash Image Found");
+                setUnsplashImage(null);
+            }
+        } catch (err) {
+            console.error("Error fetching Unsplash image:", err);
+            setUnsplashImage(null);
+        }
+    };
 
     // Filter State
     const [filterStatus, setFilterStatus] = useState('pending'); // pending | accepted | declined
@@ -40,42 +84,57 @@ export default function Requests() {
     const [discount, setDiscount] = useState(0);
     const [estimatedDate, setEstimatedDate] = useState('');
 
+    // Fetch Customer Details & Unsplash Image when request is selected
     useEffect(() => {
-        const queryParams = new URLSearchParams(location.search);
-        const filterParam = queryParams.get('filter');
-        if (filterParam) setFilterStatus(filterParam);
-    }, [location]);
-
-    useEffect(() => {
-        if (currentUser) {
-            fetchRequests();
-        }
-    }, [currentUser]); // Re-fetch only on user change or manual trigger
-
-    // Fetch Customer Details when request is selected
-    useEffect(() => {
-        const fetchCustomer = async () => {
-            if (selectedRequest?.customerId) {
-                try {
-                    const userSnap = await getDoc(doc(db, 'customers', selectedRequest.customerId));
-                    if (userSnap.exists()) {
-                        setCustomerDetails(userSnap.data());
-                    } else {
-                        setCustomerDetails(null);
+        const fetchData = async () => {
+            if (selectedRequest) {
+                // Fetch Customer
+                if (selectedRequest.customerId) {
+                    try {
+                        const userSnap = await getDoc(doc(db, 'customers', selectedRequest.customerId));
+                        if (userSnap.exists()) {
+                            setCustomerDetails(userSnap.data());
+                        } else {
+                            setCustomerDetails(null);
+                        }
+                    } catch (err) {
+                        console.error("Error fetching customer:", err);
                     }
-                } catch (err) {
-                    console.error("Error fetching customer:", err);
+                } else {
+                    setCustomerDetails(null);
+                }
+
+                // Fetch Unsplash Image - Specific Title Match
+                let query = selectedRequest.itemName;
+
+                // Fallback to material only if no title is present, strictly avoiding generic terms
+                if (!query && selectedRequest.itemDetails?.material) {
+                    query = selectedRequest.itemDetails.material;
+                }
+
+                if (query) {
+                    console.log("🔍 Fetching specific image for:", query);
+                    fetchUnsplashImage(query);
+                } else {
+                    setUnsplashImage(null);
                 }
             } else {
                 setCustomerDetails(null);
+                setUnsplashImage(null); // Reset
             }
         };
-        fetchCustomer();
+        fetchData();
     }, [selectedRequest]);
 
     const fetchRequests = async () => {
+        console.log("Fetching requests for user:", currentUser?.uid);
         setLoading(true);
         try {
+            if (!currentUser) {
+                console.log("No current user, aborting fetch");
+                setLoading(false);
+                return;
+            }
             const q = query(
                 collection(db, "requests"),
                 where("vendorIds", "array-contains", currentUser.uid)
@@ -103,6 +162,19 @@ export default function Requests() {
         }
     };
 
+    const handleDelete = async (requestId) => {
+        if (!window.confirm("Are you sure you want to delete this denied request? This cannot be undone.")) return;
+
+        try {
+            await deleteDoc(doc(db, "requests", requestId));
+            // Remove from local state
+            setRequests(prev => prev.filter(req => req.id !== requestId));
+        } catch (error) {
+            console.error("Error deleting request:", error);
+            alert("Failed to delete request.");
+        }
+    };
+
     const handleAction = async (requestId, newStatus) => {
         try {
             await updateDoc(doc(db, "requests", requestId), {
@@ -119,8 +191,19 @@ export default function Requests() {
     };
 
 
-
-
+    // Fetch Requests only when user is logged in
+    useEffect(() => {
+        if (currentUser) {
+            fetchRequests();
+        } else {
+            // If no user, stop loading (or wait for auth to initialize?
+            // Assuming useAuth provides a separate loading state, but here we just toggle it off if no user to show empty/redirect)
+            // Better: we can assume if currentUser is null, we shouldn't be here or just show nothing.
+            // But to unblock the "loading" spinner:
+            const timer = setTimeout(() => setLoading(false), 2000); // Fallback
+            return () => clearTimeout(timer);
+        }
+    }, [currentUser]); // Re-fetch only on user change or manual trigger
 
     // Reset discount when opening a new request
     useEffect(() => {
@@ -133,44 +216,48 @@ export default function Requests() {
         if (!request?.itemDetails) return null;
 
         const isSellRequest = request.itemDetails.requestType === 'sell';
+        const commissionRate = 0.05; // 5% Commission
 
         // --- Logic for SELL Requests (Vendor Buys) ---
         if (isSellRequest) {
             const askingPrice = parseFloat(request.itemDetails.askingPrice || 0);
 
-            // For Sell Requests, we keep it simple as per user request to "fetch perfect price".
-            // Vendor Pays the Asking Price. 
-            // If commission applies to seller (Customer), that's calculated on their side.
-            // Here we display what the Vendor Pays.
+            // Vendor Pays Full Asking Price
+            // Platform takes 5% from the transaction flow
+            // Customer receives 95%
+            const commission = Math.round(askingPrice * commissionRate);
+            const customerEarnings = askingPrice - commission;
 
             return {
                 isSellRequest: true,
                 originalBaseMfg: 0,
                 discountAmount: 0,
                 discountedMfgPrice: 0,
-                commission: 0, // Commission is usually deducted from Seller's payout or added. 
-                // For now, Vendor pays Asking Price. 
-                commissionRate: 0.02,
+                commission: commission,
+                commissionRate: commissionRate,
                 logistics: 0,
-                finalVendorEarnings: -askingPrice, // Cost to Vendor
-                finalVendorCost: askingPrice, // Total Vendor Pays
+                finalVendorEarnings: -askingPrice, // Vendor Pays this amount (negative for earnings logic)
+                finalVendorCost: askingPrice, // Total Vendor Pays out of pocket
                 finalCustomerTotal: 0,
-                customerEarnings: askingPrice // Customer receives
+                customerEarnings: customerEarnings // Customer receives this net amount
             };
         }
 
         // --- Logic for SERVICE Requests (Vendor Provides Service) ---
-        if (!request.itemDetails.conversionDetails?.cost_breakdown) return null;
+        if (!request.itemDetails.conversionDetails?.cost_breakdown && !request.itemDetails.conversionDetails?.pricing_analysis) return null;
 
         // Base Price from Customer/AI Analysis
-        const originalBaseMfg = Math.round(request.itemDetails.conversionDetails.cost_breakdown.base_manufacturing_cost);
+        const originalBaseMfg = Math.round(
+            request.itemDetails.conversionDetails.pricing_analysis?.final_selling_price ||
+            request.itemDetails.conversionDetails.cost_breakdown?.base_manufacturing_cost ||
+            0
+        );
 
         // 1. Calculate Discount (Max 10% on Mfg Price)
         const discountAmount = Math.round(originalBaseMfg * (customDiscount / 100));
         const priceAfterDiscount = originalBaseMfg - discountAmount;
 
-        // 2. Strict 2% Commission Logic (User: "Vendor will receive price - 2%")
-        const commissionRate = 0.02;
+        // 2. Strict 5% Commission Logic
         const commission = Math.round(priceAfterDiscount * commissionRate);
 
         // 3. Logistics (Pass-through)
@@ -184,8 +271,6 @@ export default function Requests() {
         const finalVendorEarnings = priceAfterDiscount - commission;
 
         // Customer Pays = Price + Logistics
-        // (Note: Commission is deducted from Vendor's earning, NOT added to Customer's price in this model,
-        // matching the "Vendor receives Price - 2%" requirement)
         const finalCustomerTotal = priceAfterDiscount + logistics;
 
         return {
@@ -317,19 +402,38 @@ export default function Requests() {
     };
 
     const filteredRequests = requests.filter(req => {
-        // Special case for 'Purchased' view (Completed Buy Requests)
+        // Special case for 'Purchased' view (Inventory shortcut - optional, but keeping for backward compat if needed)
         if (filterType === 'purchased') {
             return req.itemDetails?.requestType === 'sell' && req.status === 'accepted';
         }
 
-        // Standard Status Filtering
-        if (req.status !== filterStatus) return false;
+        // Type Filtering (Service vs Buy - applies to all tabs)
+        if (filterType === 'service' && req.itemDetails?.requestType === 'sell') return false;
+        if (filterType === 'buy' && req.itemDetails?.requestType !== 'sell') return false;
 
-        // Type Filtering (Service vs Buy)
-        if (filterType === 'service') return req.itemDetails?.requestType !== 'sell';
-        if (filterType === 'buy') return req.itemDetails?.requestType === 'sell';
+        // --- NEW STATUS FILTERS ---
+        const isSell = req.itemDetails?.requestType === 'sell';
+        const isCompleted = req.projectMeta?.trackingStage === 'completed';
 
-        return true;
+        switch (filterStatus) {
+            case 'pending':
+                return req.status === 'pending';
+
+            case 'accepted': // "Approved" (Active Service Requests)
+                return req.status === 'accepted' && !isSell && !isCompleted;
+
+            case 'completed': // "Completed" (Finished Service Requests)
+                return req.status === 'accepted' && !isSell && isCompleted;
+
+            case 'bought': // "Bought" (Accepted Sell Requests)
+                return req.status === 'accepted' && isSell;
+
+            case 'declined':
+                return req.status === 'declined';
+
+            default:
+                return req.status === filterStatus;
+        }
     });
 
     return (
@@ -347,58 +451,48 @@ export default function Requests() {
                 {/* Type Filter Toggles */}
                 <div className="flex bg-gray-100 p-1 rounded-xl">
                     <button
-                        onClick={() => { setFilterType('all'); setFilterStatus('pending'); }}
-                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filterType === 'all' && filterStatus === 'pending' ? 'bg-white shadow-sm text-brand-brown' : 'text-gray-500 hover:text-brand-brown'}`}
+                        onClick={() => { setFilterType('all'); }}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filterType === 'all' ? 'bg-white shadow-sm text-brand-brown' : 'text-gray-500 hover:text-brand-brown'}`}
                     >
-                        New
+                        All Types
                     </button>
                     <button
-                        onClick={() => { setFilterType('buy'); setFilterStatus('pending'); }}
-                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filterType === 'buy' && filterStatus === 'pending' ? 'bg-brand-green/10 text-brand-green shadow-sm' : 'text-gray-500 hover:text-brand-green'}`}
+                        onClick={() => { setFilterType('service'); }}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filterType === 'service' ? 'bg-white shadow-sm text-brand-brown' : 'text-gray-500 hover:text-brand-brown'}`}
                     >
-                        {t('buy_requests') || 'Buy Leads'}
+                        Recycle Requests
                     </button>
                     <button
-                        onClick={() => { setFilterType('purchased'); }}
-                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filterType === 'purchased' ? 'bg-brand-green text-white shadow-md' : 'text-gray-500 hover:text-brand-green'}`}
+                        onClick={() => { setFilterType('buy'); }}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${filterType === 'buy' ? 'bg-white shadow-sm text-brand-brown' : 'text-gray-500 hover:text-brand-brown'}`}
                     >
-                        Inventory
+                        Buy Leads
                     </button>
                 </div>
             </div>
 
-            {/* Status Tabs (Only show if not in Purchased/Inventory mode) */}
-            {filterType !== 'purchased' && (
-                <div className="flex gap-2 justify-center md:justify-start overflow-x-auto pb-2">
+            {/* Status Tabs */}
+            <div className="flex gap-2 justify-center md:justify-start overflow-x-auto pb-2 scrollbar-hide">
+                {[
+                    { id: 'pending', label: t('filter_pending') || 'Pending' },
+                    { id: 'accepted', label: 'Approved (Active)' },
+                    { id: 'completed', label: 'Completed' },
+                    { id: 'bought', label: 'Bought' },
+                    { id: 'declined', label: t('filter_declined') || 'Denied' }
+                ].map(tab => (
                     <button
-                        onClick={() => setFilterStatus('pending')}
-                        className={`px-6 py-2 rounded-full whitespace-nowrap text-sm font-bold transition-all border ${filterStatus === 'pending'
+                        key={tab.id}
+                        onClick={() => setFilterStatus(tab.id)}
+                        className={`px-4 py-2 rounded-full whitespace-nowrap text-sm font-bold transition-all border ${filterStatus === tab.id
                             ? 'bg-brand-brown text-white border-brand-brown shadow-lg shadow-brand-brown/20'
-                            : 'bg-white text-brand-brown border-brand-brown/20 hover:bg-brand-brown/5'
+                            : 'bg-white text-brand-brown border-brand-brown/10 hover:bg-brand-brown/5'
                             }`}
                     >
-                        {t('filter_pending')}
+                        {tab.label}
                     </button>
-                    <button
-                        onClick={() => setFilterStatus('accepted')}
-                        className={`px-6 py-2 rounded-full whitespace-nowrap text-sm font-bold transition-all border ${filterStatus === 'accepted'
-                            ? 'bg-brand-brown text-white border-brand-brown shadow-lg shadow-brand-brown/20'
-                            : 'bg-white text-brand-brown border-brand-brown/20 hover:bg-brand-brown/5'
-                            }`}
-                    >
-                        {t('filter_approved')}
-                    </button>
-                    <button
-                        onClick={() => setFilterStatus('declined')}
-                        className={`px-6 py-2 rounded-full whitespace-nowrap text-sm font-bold transition-all border ${filterStatus === 'declined'
-                            ? 'bg-brand-brown text-white border-brand-brown shadow-lg shadow-brand-brown/20'
-                            : 'bg-white text-brand-brown border-brand-brown/20 hover:bg-brand-brown/5'
-                            }`}
-                    >
-                        {t('filter_declined')}
-                    </button>
-                </div>
-            )}
+                ))}
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 {loading ? (
                     <div className="col-span-full flex justify-center py-20">
@@ -408,7 +502,7 @@ export default function Requests() {
                     <div className="col-span-full py-12 text-center text-brand-brown/40 border-2 border-dashed border-brand-brown/10 rounded-3xl">
                         <Inbox className="w-16 h-16 mx-auto mb-4 opacity-50" />
                         <h3 className="text-xl font-bold mb-2">{t('no_requests_yet')}</h3>
-                        <p>{filterType === 'purchased' ? "You haven't bought any items yet." : t('nearby_requests_hint')}</p>
+                        <p>No requests found for this category.</p>
                     </div>
                 ) : (
                     filteredRequests.map((request) => (
@@ -502,6 +596,16 @@ export default function Requests() {
                                     </div>
                                 )}
 
+                                {request.status === 'declined' && (
+                                    <button
+                                        onClick={() => handleDelete(request.id)}
+                                        className="w-full py-2 border border-red-200 text-red-600 rounded-lg font-bold text-sm hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                        Delete Forever
+                                    </button>
+                                )}
+
                                 {request.status === 'accepted' && (
                                     <div className="p-3 bg-green-50 text-green-800 rounded-lg text-sm text-center font-bold">
                                         {t('accepted_panel')}
@@ -562,9 +666,60 @@ export default function Requests() {
                                     {/* Use Case & Analysis - HIDE for Buy Requests to simplify */}
                                     {selectedRequest.itemDetails.requestType !== 'sell' && (
                                         <>
-                                            <div className="bg-brand-brown/5 p-4 rounded-xl border border-brand-brown/10">
-                                                <div className="text-xs font-bold text-brand-brown/60 uppercase mb-2">{t('daily_use_case')}</div>
-                                                <p className="text-brand-brown italic">"{selectedRequest.itemDetails.conversionDetails?.daily_use_case}"</p>
+                                            {/* Transformation Visualization (Before -> After) */}
+                                            <div className="mb-8">
+                                                <div className="flex items-center justify-between gap-2 mb-2">
+                                                    <span className="text-xs font-bold text-gray-500 uppercase">Input (Uploaded)</span>
+                                                    <span className="text-xs font-bold text-brand-green uppercase">Output (Target)</span>
+                                                </div>
+
+                                                <div className="flex items-center justify-between gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                                                    {/* LEFT: Uploaded Image */}
+                                                    <div className="relative w-1/2 aspect-square rounded-xl overflow-hidden border border-gray-200 shadow-sm bg-white">
+                                                        {selectedRequest.itemImage ? (
+                                                            <img
+                                                                src={selectedRequest.itemImage}
+                                                                alt="Original Upload"
+                                                                className="w-full h-full object-cover"
+                                                            />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">No Upload</div>
+                                                        )}
+                                                        <div className="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[10px] py-1 text-center font-bold backdrop-blur-sm">
+                                                            {selectedRequest.itemName || 'Raw Material'}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* CENTER: Arrow */}
+                                                    <div className="flex flex-col items-center justify-center text-brand-brown/40">
+                                                        <div className="w-8 h-0.5 bg-brand-brown/20 rounded-full mb-1"></div>
+                                                        <div className="p-2 bg-white rounded-full shadow-sm border border-brand-brown/10 z-10">
+                                                            <ArrowRight className="w-5 h-5" />
+                                                        </div>
+                                                        <div className="w-8 h-0.5 bg-brand-brown/20 rounded-full mt-1"></div>
+                                                    </div>
+
+                                                    {/* RIGHT: Goal Image (Unsplash) */}
+                                                    <div className="relative w-1/2 aspect-square rounded-xl overflow-hidden border-2 border-brand-green/20 shadow-sm bg-white group">
+                                                        {unsplashImage ? (
+                                                            <img
+                                                                src={unsplashImage}
+                                                                alt="Target Product"
+                                                                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+                                                            />
+                                                        ) : (
+                                                            <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gray-50">
+                                                                <Loader2 className="w-6 h-6 animate-spin mb-2 opacity-20" />
+                                                                <span className="text-[10px]">Loading Goal...</span>
+                                                            </div>
+                                                        )}
+                                                        {unsplashImage && <div className="absolute bottom-2 right-2 text-[10px] text-white/70 bg-black/30 px-2 py-0.5 rounded">via Unsplash</div>}
+
+                                                        <div className="absolute bottom-0 inset-x-0 bg-brand-green/90 text-white text-[10px] py-1 text-center font-bold backdrop-blur-sm">
+                                                            {selectedRequest.itemDetails?.goal || 'Finished Product'}
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
 
                                             {selectedRequest.itemDetails.conversionDetails?.analysis_factors && (
@@ -602,14 +757,15 @@ export default function Requests() {
                                                     </div>
                                                 </div>
                                             </div>
-                                            {selectedRequest.itemImage ? (
+                                            {unsplashImage || selectedRequest.itemImage ? (
                                                 <div className="relative group overflow-hidden rounded-xl border border-brand-brown/10">
                                                     <img
-                                                        src={selectedRequest.itemImage}
+                                                        src={unsplashImage || selectedRequest.itemImage}
                                                         alt="Item"
                                                         className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                                                     />
                                                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors pointer-events-none" />
+                                                    {unsplashImage && <div className="absolute bottom-2 right-2 text-[10px] text-white/70 bg-black/30 px-2 py-0.5 rounded">via Unsplash</div>}
                                                 </div>
                                             ) : (
                                                 <div className="bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 text-xs">
@@ -619,31 +775,7 @@ export default function Requests() {
                                         </div>
                                     )}
 
-                                    {/* Material Lists */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
-                                            <div className="text-xs font-bold text-orange-700 uppercase mb-3">{t('cust_provides')}</div>
-                                            <ul className="space-y-2">
-                                                {selectedRequest.itemDetails.conversionDetails?.materials_needed?.customer_can_provide?.map((m, i) => (
-                                                    <li key={i} className="flex items-start gap-2 text-sm text-brand-brown">
-                                                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-orange-400 flex-shrink-0" />
-                                                        {m}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                        <div className="bg-green-50 p-4 rounded-xl border border-green-100">
-                                            <div className="text-xs font-bold text-green-700 uppercase mb-3">{t('you_provide')}</div>
-                                            <ul className="space-y-2">
-                                                {selectedRequest.itemDetails.conversionDetails?.materials_needed?.vendor_can_provide?.map((m, i) => (
-                                                    <li key={i} className="flex items-start gap-2 text-sm text-brand-brown">
-                                                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
-                                                        {m}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    </div>
+
 
                                     {/* Step-by-Step Instructions */}
                                     {selectedRequest.itemDetails.conversionDetails?.step_by_step_instructions && (
@@ -664,13 +796,7 @@ export default function Requests() {
                                         </div>
                                     )}
 
-                                    {/* Processing Instructions (Legacy/Summary) */}
-                                    <div>
-                                        <div className="text-xs font-bold text-brand-brown/60 uppercase mb-2">{t('processing_steps')}</div>
-                                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 text-sm text-brand-brown leading-relaxed">
-                                            {selectedRequest.itemDetails.conversionDetails?.required_processing}
-                                        </div>
-                                    </div>
+
 
                                     {/* Financial Summary */}
                                     <div className="border-t pt-6">
