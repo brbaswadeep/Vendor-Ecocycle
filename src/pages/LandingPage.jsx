@@ -23,6 +23,26 @@ export default function LandingPage() {
     const [terms, setTerms] = useState(false);
     const [keepLogged, setKeepLogged] = useState(false);
 
+    const executeRecaptcha = (action) => {
+        return new Promise((resolve) => {
+            if (!window.grecaptcha) {
+                console.error("reCAPTCHA not loaded");
+                resolve(null);
+                return;
+            }
+            window.grecaptcha.enterprise.ready(async () => {
+                try {
+                    const token = await window.grecaptcha.enterprise.execute('6Lf4N2UsAAAAANhe_R1rRUZ22M-giKsMGAYom4R6', { action });
+                    console.log(`Recaptcha Token Generated (${action}):`, token);
+                    resolve(token);
+                } catch (error) {
+                    console.error("reCAPTCHA execution failed:", error);
+                    resolve(null);
+                }
+            });
+        });
+    };
+
     async function handleRegister(e) {
         e.preventDefault();
         setError('');
@@ -34,6 +54,9 @@ export default function LandingPage() {
 
         setLoading(true);
         try {
+            // Generate reCAPTCHA Token
+            await executeRecaptcha('VENDOR_REGISTER');
+
             await signup(email, password, businessName, contactPerson, businessType);
             navigate('/dashboard');
         } catch (err) {
@@ -48,6 +71,9 @@ export default function LandingPage() {
         setError('');
         setLoading(true);
         try {
+            // Generate reCAPTCHA Token
+            await executeRecaptcha('VENDOR_LOGIN');
+
             await login(email, password);
             navigate('/dashboard');
         } catch (err) {
