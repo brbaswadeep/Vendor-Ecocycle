@@ -23,16 +23,14 @@ export default function Earnings() {
 
     const fetchEarnings = async () => {
         try {
-            // Fetch accepted/completed orders
+            // Fetch accepted/completed requests
             const q = query(
                 collection(db, 'requests'),
-                where('acceptedBy', '==', currentUser.uid),
-                // We should ideally filter by status, but for earnings, we include all accepted
-                // orderBy('createdAt', 'desc') // Requires index
+                where('acceptedBy', '==', currentUser.uid)
             );
 
             const querySnapshot = await getDocs(q);
-            const fetchedOrders = [];
+            const fetchedItems = [];
             let totalEarn = 0;
             let totalComm = 0;
 
@@ -40,14 +38,12 @@ export default function Earnings() {
                 const data = doc.data();
                 // Only consider valid accepted/completed orders with quotes
                 if (data.status === 'accepted' || data.status === 'completed') {
-                    fetchedOrders.push({ id: doc.id, ...data });
+                    fetchedItems.push({ id: doc.id, ...data, type: 'request' });
 
                     // Handle different data structure for Sell vs Service requests
                     const isSell = !!data.finalQuote?.vendorPays;
 
                     // Show Net Earnings to vendor
-                    // For Sell requests (Expense), Earnings is 0 (or could be negative if tracking net flow, but standard Earnings = Income).
-                    // We will exclude Buy costs from "Total Earnings" stat.
                     const earnings = isSell ? 0 : (data.finalQuote?.finalVendorEarnings || 0);
                     const comm = data.finalQuote?.platformFee || 0;
 
@@ -56,15 +52,39 @@ export default function Earnings() {
                 }
             });
 
-            // Sort manually if index missing
-            fetchedOrders.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+            // Fetch Shop Orders
+            const shopQ = query(
+                collection(db, 'orders'),
+                where('vendorId', '==', currentUser.uid)
+            );
+            const shopSnapshot = await getDocs(shopQ);
 
-            setOrders(fetchedOrders);
+            shopSnapshot.forEach(doc => {
+                const data = doc.data();
+                // Store Order
+                fetchedItems.push({ id: doc.id, ...data, type: 'shop_order' });
+
+                // Calculations
+                const earnings = data.priceBreakdown?.vendorEarnings || 0;
+                const comm = data.priceBreakdown?.platformFee || 0;
+
+                totalEarn += earnings;
+                totalComm += comm;
+            });
+
+            // Sort manually
+            fetchedItems.sort((a, b) => {
+                const timeA = a.createdAt?.seconds || (a.createdAt?.toMillis ? a.createdAt.toMillis() / 1000 : 0);
+                const timeB = b.createdAt?.seconds || (b.createdAt?.toMillis ? b.createdAt.toMillis() / 1000 : 0);
+                return timeB - timeA;
+            });
+
+            setOrders(fetchedItems);
             setStats({
                 totalEarnings: totalEarn,
                 totalCommissionOwed: totalComm,
-                pendingCommission: totalComm, // Assuming all unseen is pending for now
-                paidCommission: 0 // Placeholder logic for now
+                pendingCommission: totalComm,
+                paidCommission: 0
             });
         } catch (error) {
             console.error("Error fetching earnings:", error);
@@ -123,7 +143,7 @@ export default function Earnings() {
                         <thead className="bg-brand-cream/30 text-xs uppercase text-brand-brown/60 font-bold">
                             <tr>
                                 <th className="px-6 py-4">{t('date')}</th>
-                                <th className="px-6 py-4">{t('request_id')}</th>
+                                <th className="px-6 py-4">{t('type')}</th>
                                 <th className="px-6 py-4">{t('order_value')}</th>
                                 <th className="px-6 py-4">{t('your_share')}</th>
                                 <th className="px-6 py-4 text-right">{t('commission_table')}</th>
@@ -131,17 +151,31 @@ export default function Earnings() {
                         </thead>
                         <tbody className="divide-y divide-brand-brown/5">
                             {orders.map((order) => {
-                                const isSell = !!order.finalQuote?.vendorPays;
-                                const orderValue = isSell ? (order.finalQuote?.totalTransaction || 0) : (order.finalQuote?.totalCustomerPrice || 0);
-                                const share = isSell ? -(order.finalQuote?.vendorPays || 0) : (order.finalQuote?.finalVendorEarnings || 0);
+                                let isSell, orderValue, share, commission;
+
+                                if (order.type === 'shop_order') {
+                                    isSell = false;
+                                    orderValue = order.priceBreakdown?.total || order.price;
+                                    share = order.priceBreakdown?.vendorEarnings || 0;
+                                    commission = order.priceBreakdown?.platformFee || 0;
+                                } else {
+                                    isSell = !!order.finalQuote?.vendorPays;
+                                    orderValue = isSell ? (order.finalQuote?.totalTransaction || 0) : (order.finalQuote?.totalCustomerPrice || 0);
+                                    share = isSell ? -(order.finalQuote?.vendorPays || 0) : (order.finalQuote?.finalVendorEarnings || 0);
+                                    commission = order.finalQuote?.platformFee || 0;
+                                }
 
                                 return (
                                     <tr key={order.id} className="hover:bg-brand-cream/10 transition-colors">
                                         <td className="px-6 py-4 font-medium text-brand-brown">
                                             {order.createdAt?.toDate ? order.createdAt.toDate().toLocaleDateString() : 'N/A'}
                                         </td>
-                                        <td className="px-6 py-4 text-sm text-brand-brown/70 font-mono">
-                                            {order.id.slice(0, 8)}...
+                                        <td className="px-6 py-4">
+                                            <span className={`text-[10px] uppercase font-bold px-2 py-1 rounded-full ${order.type === 'shop_order' ? 'bg-blue-100 text-blue-700' :
+                                                    (isSell ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700')
+                                                }`}>
+                                                {order.type === 'shop_order' ? 'Shop Sale' : (isSell ? 'Purchase' : 'Service')}
+                                            </span>
                                         </td>
                                         <td className="px-6 py-4 font-bold text-brand-brown">
                                             ₹{Math.round(orderValue)}
@@ -150,7 +184,7 @@ export default function Earnings() {
                                             {isSell ? '-' : ''}₹{Math.abs(Math.round(share))}
                                         </td>
                                         <td className="px-6 py-4 font-bold text-red-500 text-right">
-                                            ₹{Math.round(order.finalQuote?.platformFee || 0)}
+                                            ₹{Math.round(commission)}
                                         </td>
                                     </tr>
                                 )

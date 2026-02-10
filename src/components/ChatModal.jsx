@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, setDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, setDoc, doc, increment } from 'firebase/firestore';
 import { Send, X, User } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -56,6 +56,7 @@ export default function ChatModal({ orderId, currentUser, onClose, recipientName
                     lastMessage: newMessage,
                     lastUpdated: timestamp,
                     orderId: orderId,
+                    [`unreadCount.${receiverId}`]: increment(1),
                     // Store names for easier display
                     participantNames: {
                         [currentUser.uid]: currentUser.displayName || currentUser.businessName || t('default_vendor'),

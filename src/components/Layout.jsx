@@ -2,10 +2,10 @@ import React from 'react';
 import { Outlet, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
 import LocationRequiredPopup from './LocationRequiredPopup';
 import logo from '../assets/logo.png';
-import { Store, User, LogOut, Globe } from 'lucide-react';
+import { Store, User, LogOut, Globe, MessageCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 export default function Layout() {
@@ -15,6 +15,25 @@ export default function Layout() {
 
     // Track synced language to prevent overriding preview
     const [syncedLang, setSyncedLang] = React.useState(null);
+
+    // Track unread messages
+    const [unreadCount, setUnreadCount] = React.useState(0);
+
+    React.useEffect(() => {
+        if (!currentUser) return;
+        const q = query(
+            collection(db, 'chats'),
+            where('participants', 'array-contains', currentUser.uid)
+        );
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            let count = 0;
+            snapshot.forEach(doc => {
+                count += (doc.data().unreadCount?.[currentUser.uid] || 0);
+            });
+            setUnreadCount(count);
+        });
+        return () => unsubscribe();
+    }, [currentUser]);
 
     // Sync language from user profile ONLY when it changes
     React.useEffect(() => {
@@ -54,6 +73,16 @@ export default function Layout() {
                             <Link to="/products" className="flex items-center gap-2 bg-brand-brown/5 hover:bg-brand-brown/10 px-3 py-2 rounded-xl transition-colors text-brand-brown font-medium text-sm">
                                 <Store className="w-4 h-4" />
                                 <span className="hidden sm:inline">My Shop</span>
+                            </Link>
+
+                            {/* Unread Messages */}
+                            <Link to="/messages" className="relative flex items-center justify-center w-10 h-10 bg-brand-brown/5 hover:bg-brand-brown/10 rounded-xl transition-colors text-brand-brown">
+                                <MessageCircle className="w-5 h-5" />
+                                {unreadCount > 0 && (
+                                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center border-2 border-white">
+                                        {unreadCount > 99 ? '99+' : unreadCount}
+                                    </span>
+                                )}
                             </Link>
 
                             {/* Language Selector */}
@@ -129,7 +158,7 @@ function LanguageSelector({ t, i18n, currentUser }) {
                 onClick={() => setIsOpen(!isOpen)}
                 className="flex items-center gap-2 bg-brand-brown/5 hover:bg-brand-brown/10 px-3 py-2 rounded-xl transition-colors text-brand-brown font-medium text-sm"
             >
-                <Store className="w-4 h-4" />
+                <Globe className="w-4 h-4" />
                 <span className="hidden sm:inline">{currentLang.native}</span>
             </button>
 

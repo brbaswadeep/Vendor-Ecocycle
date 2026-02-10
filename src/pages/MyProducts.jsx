@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { db, storage } from '../firebase';
-import { collection, query, where, getDocs, addDoc, updateDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Package, Truck, Tag, DollarSign, Image as ImageIcon, Loader2, CheckCircle, Info, Recycle, User } from 'lucide-react';
+import { Plus, Package, Truck, Tag, DollarSign, Image as ImageIcon, Loader2, CheckCircle, Info, Recycle, User, Trash2, History } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 export default function MyProducts() {
@@ -11,8 +11,9 @@ export default function MyProducts() {
     const { currentUser } = useAuth();
 
     // UI State
-    const [activeTab, setActiveTab] = useState('products'); // 'products' | 'orders'
+    const [activeTab, setActiveTab] = useState('products'); // 'products' | 'orders' | 'previous'
     const [isAddingMode, setIsAddingMode] = useState(false);
+    const [editingId, setEditingId] = useState(null); // Track which product is being edited
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [loading, setLoading] = useState(true);
 
@@ -21,10 +22,16 @@ export default function MyProducts() {
     const [orders, setOrders] = useState([]);
     const [inventory, setInventory] = useState([]);
 
+    // Shipping Modal State
+    const [showShippingModal, setShowShippingModal] = useState(false);
+    const [selectedOrderForShipping, setSelectedOrderForShipping] = useState(null);
+    const [trackingData, setTrackingData] = useState({ deliveryPartner: '', trackingId: '' });
+
     // Form State
     const [formData, setFormData] = useState({
         name: '',
         price: '',
+        quantity: 1,
         category: 'General',
         description: '',
         type: 'new', // 'new' | 'recycled'
@@ -115,16 +122,24 @@ export default function MyProducts() {
                 imageUrl = await getDownloadURL(imageRef);
             }
 
-            // Add Product to Firestore
-            await addDoc(collection(db, "products"), {
+            const productData = {
                 ...formData,
                 image: imageUrl,
                 price: Number(formData.price),
+                quantity: Number(formData.quantity) || 1,
                 vendorId: currentUser.uid,
                 vendorName: currentUser.businessName || currentUser.email,
-                createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp()
-            });
+            };
+
+            if (editingId) {
+                await updateDoc(doc(db, "products", editingId), productData);
+                alert("Product updated successfully!");
+            } else {
+                productData.createdAt = serverTimestamp();
+                await addDoc(collection(db, "products"), productData);
+                alert(t('product_added_success') || "Product added successfully!");
+            }
 
             // If it was a recycled product from inventory, update inventory status
             if (formData.type === 'recycled' && formData.sourceType === 'inventory' && formData.sourceInventoryId) {
@@ -139,6 +154,7 @@ export default function MyProducts() {
             setFormData({
                 name: '',
                 price: '',
+                quantity: 1,
                 category: 'General',
                 description: '',
                 type: 'new',
@@ -147,8 +163,8 @@ export default function MyProducts() {
                 image: null
             });
             setIsAddingMode(false);
+            setEditingId(null);
             fetchData(); // Refresh list
-            alert(t('product_added_success') || "Product added successfully!");
 
         } catch (error) {
             console.error("Error adding product:", error);
@@ -170,7 +186,66 @@ export default function MyProducts() {
             fetchData(); // Refresh orders
         } catch (error) {
             console.error("Error updating order:", error);
+        }
+    };
+
+    const openShippingModal = (order) => {
+        setSelectedOrderForShipping(order);
+        setTrackingData({ deliveryPartner: '', trackingId: '' });
+        setShowShippingModal(true);
+    };
+
+    const submitShipping = async () => {
+        if (!selectedOrderForShipping) return;
+
+        try {
+            const orderRef = doc(db, "orders", selectedOrderForShipping.id);
+            await updateDoc(orderRef, {
+                status: 'shipped',
+                trackingId: trackingData.trackingId,
+                deliveryPartner: trackingData.deliveryPartner,
+                shippedAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            });
+
+            setShowShippingModal(false);
+            setSelectedOrderForShipping(null);
+            fetchData();
+            alert("Order marked as shipped!");
+        } catch (error) {
+            console.error("Error updating shipping status:", error);
             alert("Failed to update status");
+        }
+    };
+
+    // Edit Handler
+    const handleEdit = (product) => {
+        setFormData({
+            name: product.name,
+            price: product.price,
+            quantity: product.quantity || 1,
+            category: product.category || 'General',
+            description: product.description || '',
+            type: product.type || 'new',
+            sourceType: product.sourceType || 'inventory',
+            sourceInventoryId: product.sourceInventoryId || '',
+            image: product.image
+        });
+        setEditingId(product.id);
+        setIsAddingMode(true);
+        // Scroll to top
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    // Delete Handler
+    const handleDelete = async (productId) => {
+        if (!window.confirm("Are you sure you want to delete this product? This cannot be undone.")) return;
+        try {
+            await deleteDoc(doc(db, "products", productId));
+            setProducts(prev => prev.filter(p => p.id !== productId));
+        } catch (error) {
+            console.error("Error deleting product:", error);
+            alert("Failed to delete product.");
         }
     };
     if (loading) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin" /></div>;
@@ -186,7 +261,16 @@ export default function MyProducts() {
 
                 {activeTab === 'products' && (
                     <button
-                        onClick={() => setIsAddingMode(!isAddingMode)}
+                        onClick={() => {
+                            setIsAddingMode(!isAddingMode);
+                            if (isAddingMode) {
+                                setEditingId(null); // Reset if canceling
+                                setFormData({
+                                    name: '', price: '', quantity: 1, category: 'General', description: '',
+                                    type: 'new', sourceType: 'inventory', sourceInventoryId: '', image: null
+                                });
+                            }
+                        }}
                         className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-md hover:shadow-lg ${isAddingMode ? 'bg-gray-200 text-gray-700' : 'bg-brand-brown text-white hover:bg-brand-black'}`}
                     >
                         {isAddingMode ? "Cancel" : <><Plus size={20} /> Add New Product</>}
@@ -195,16 +279,22 @@ export default function MyProducts() {
             </div>
 
             {/* Tabs */}
-            <div className="flex bg-white p-1 rounded-xl shadow-sm border border-brand-brown/5 max-w-md">
+            <div className="flex bg-white p-1 rounded-xl shadow-sm border border-brand-brown/5 max-w-2xl overflow-x-auto">
                 <button
                     onClick={() => setActiveTab('products')}
-                    className={`flex-1 py-3 px-4 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 ${activeTab === 'products' ? 'bg-brand-brown/10 text-brand-brown shadow-sm' : 'text-gray-400 hover:text-brand-brown/60'}`}
+                    className={`flex-1 py-3 px-4 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'products' ? 'bg-brand-brown/10 text-brand-brown shadow-sm' : 'text-gray-400 hover:text-brand-brown/60'}`}
                 >
-                    <Package className="w-4 h-4" /> My Products
+                    <Package className="w-4 h-4" /> Active Listings
+                </button>
+                <button
+                    onClick={() => setActiveTab('previous')}
+                    className={`flex-1 py-3 px-4 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'previous' ? 'bg-orange-100 text-orange-800 shadow-sm' : 'text-gray-400 hover:text-orange-800/60'}`}
+                >
+                    <History className="w-4 h-4" /> Previous
                 </button>
                 <button
                     onClick={() => setActiveTab('orders')}
-                    className={`flex-1 py-3 px-4 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 ${activeTab === 'orders' ? 'bg-green-100 text-green-800 shadow-sm' : 'text-gray-400 hover:text-green-700/60'}`}
+                    className={`flex-1 py-3 px-4 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'orders' ? 'bg-green-100 text-green-800 shadow-sm' : 'text-gray-400 hover:text-green-700/60'}`}
                 >
                     <Truck className="w-4 h-4" /> Incoming Orders
                     {orders.length > 0 && (
@@ -217,14 +307,14 @@ export default function MyProducts() {
             <div className="min-h-[500px]">
 
                 {/* 1. PRODUCTS TAB */}
-                {activeTab === 'products' && (
+                {(activeTab === 'products' || activeTab === 'previous') && (
                     <>
                         {/* ADD PRODUCT FORM */}
                         {isAddingMode && (
                             <div className="bg-white p-8 rounded-3xl shadow-xl border border-brand-brown/10 animate-in slide-in-from-top-4 mb-8">
                                 <h2 className="text-xl font-bold mb-6 text-brand-brown flex items-center gap-2">
-                                    <Plus className="w-5 h-5 bg-brand-brown text-white rounded-full p-1" />
-                                    Add New Product
+                                    {editingId ? <CheckCircle className="w-5 h-5 bg-brand-brown text-white rounded-full p-1" /> : <Plus className="w-5 h-5 bg-brand-brown text-white rounded-full p-1" />}
+                                    {editingId ? "Edit Product" : "Add New Product"}
                                 </h2>
                                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                     {/* ... (Keep existing form content, just updated classes slightly for polish) ... */}
@@ -311,6 +401,19 @@ export default function MyProducts() {
                                                 </div>
                                             </div>
                                             <div className="flex-1">
+                                                <label className="block text-sm font-bold text-brand-brown mb-1.5">Quantity</label>
+                                                <input
+                                                    required type="number"
+                                                    className="w-full p-4 bg-gray-50 border-0 rounded-xl font-bold focus:ring-2 focus:ring-brand-green outline-none"
+                                                    placeholder="1"
+                                                    value={formData.quantity}
+                                                    onChange={e => setFormData({ ...formData, quantity: e.target.value })}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="flex gap-4">
+                                            <div className="flex-1">
                                                 <label className="block text-sm font-bold text-brand-brown mb-1.5">Category</label>
                                                 <select
                                                     className="w-full p-4 bg-gray-50 border-0 rounded-xl font-medium focus:ring-2 focus:ring-brand-green outline-none cursor-pointer"
@@ -369,55 +472,75 @@ export default function MyProducts() {
                                             disabled={isSubmitting}
                                             className="w-full py-5 bg-brand-brown text-white font-bold text-lg rounded-xl shadow-xl hover:bg-brand-black transition transform active:scale-95 disabled:opacity-50 disabled:scale-100"
                                         >
-                                            {isSubmitting ? "Publishing..." : "Publish Product Now"}
+                                            {isSubmitting ? "Saving..." : (editingId ? "Save Changes" : "Publish Product Now")}
                                         </button>
                                     </div>
                                 </form>
                             </div>
                         )}
 
+
+
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                            {products.length === 0 && !loading && (
+                            {products.filter(p => activeTab === 'previous' ? (!p.quantity || p.quantity <= 0) : (p.quantity > 0)).length === 0 && !loading && (
                                 <div className="col-span-full py-32 text-center opacity-40 bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200">
                                     <Tag className="w-20 h-20 mx-auto mb-6 text-gray-300" />
-                                    <h3 className="text-2xl font-bold text-gray-400">Your Shop is Empty</h3>
-                                    <p className="max-w-xs mx-auto mt-2">Add your first recycled masterpiece to start selling.</p>
+                                    <h3 className="text-2xl font-bold text-gray-400 whitespace-pre-wrap">
+                                        {activeTab === 'previous' ? "No Out of Stock Items" : "Your Shop is Empty"}
+                                    </h3>
+                                    <p className="max-w-xs mx-auto mt-2">
+                                        {activeTab === 'previous' ? "Sold out items will appear here." : "Add your first recycled masterpiece to start selling."}
+                                    </p>
                                 </div>
                             )}
-                            {products.map(product => (
-                                <div key={product.id} className="bg-white rounded-3xl shadow-sm border border-brand-brown/5 overflow-hidden group hover:shadow-xl transition-all duration-300">
-                                    <div className="h-56 overflow-hidden relative bg-gray-100">
-                                        <img src={product.image || 'https://placehold.co/300?text=No+Image'} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition duration-700" />
-                                        {product.type === 'recycled' && (
-                                            <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm text-green-700 text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1 shadow-sm">
-                                                <CheckCircle className="w-3 h-3" /> RECYCLED
+                            {products
+                                .filter(p => activeTab === 'previous' ? (!p.quantity || p.quantity <= 0) : (p.quantity > 0))
+                                .map(product => (
+                                    <div key={product.id} className="bg-white rounded-3xl shadow-sm border border-brand-brown/5 overflow-hidden group hover:shadow-xl transition-all duration-300">
+                                        <div className="h-56 overflow-hidden relative bg-gray-100">
+                                            <img src={product.image || 'https://placehold.co/300?text=No+Image'} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition duration-700" />
+                                            {product.type === 'recycled' && (
+                                                <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm text-green-700 text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1 shadow-sm">
+                                                    <CheckCircle className="w-3 h-3" /> RECYCLED
+                                                </div>
+                                            )}
+                                            <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg text-[10px] font-bold text-brand-brown shadow-sm uppercase tracking-wider">
+                                                {product.category}
                                             </div>
-                                        )}
-                                        <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg text-[10px] font-bold text-brand-brown shadow-sm uppercase tracking-wider">
-                                            {product.category}
+                                        </div>
+                                        <div className="p-5">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <h3 className="font-bold text-brand-brown text-lg leading-tight line-clamp-2">{product.name}</h3>
+                                                <div className="font-extrabold text-brand-green text-xl whitespace-nowrap">₹{product.price}</div>
+                                            </div>
+
+                                            {product.type === 'recycled' && product.sourceInventoryName && (
+                                                <div className="bg-green-50 p-2 rounded-lg text-xs text-green-800 mb-4 flex items-start gap-2 border border-green-100/50">
+                                                    <Recycle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 opacity-70" />
+                                                    <span className="opacity-90 leading-tight">Made from <span className="font-bold">{product.sourceInventoryName}</span></span>
+                                                </div>
+                                            )}
+
+                                            <p className="text-sm text-brand-brown/60 line-clamp-2 mb-4 h-10">{product.description}</p>
+
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => handleEdit(product)}
+                                                    className="flex-1 py-2.5 bg-gray-50 text-brand-brown/70 font-bold rounded-xl text-sm hover:bg-brand-brown hover:text-white transition-colors"
+                                                >
+                                                    Edit Details
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDelete(product.id)}
+                                                    className="px-3 py-2.5 bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition-colors"
+                                                    title="Delete Product"
+                                                >
+                                                    <Trash2 className="w-5 h-5" />
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div className="p-5">
-                                        <div className="flex justify-between items-start mb-2">
-                                            <h3 className="font-bold text-brand-brown text-lg leading-tight line-clamp-2">{product.name}</h3>
-                                            <div className="font-extrabold text-brand-green text-xl whitespace-nowrap">₹{product.price}</div>
-                                        </div>
-
-                                        {product.type === 'recycled' && product.sourceInventoryName && (
-                                            <div className="bg-green-50 p-2 rounded-lg text-xs text-green-800 mb-4 flex items-start gap-2 border border-green-100/50">
-                                                <Recycle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 opacity-70" />
-                                                <span className="opacity-90 leading-tight">Made from <span className="font-bold">{product.sourceInventoryName}</span></span>
-                                            </div>
-                                        )}
-
-                                        <p className="text-sm text-brand-brown/60 line-clamp-2 mb-4 h-10">{product.description}</p>
-
-                                        <button className="w-full py-2.5 bg-gray-50 text-brand-brown/70 font-bold rounded-xl text-sm hover:bg-brand-brown hover:text-white transition-colors">
-                                            Edit Details
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
+                                ))}
                         </div>
                     </>
                 )}
@@ -466,7 +589,7 @@ export default function MyProducts() {
                                         <div className="flex gap-2 w-full md:w-auto">
                                             {(!order.status || order.status === 'pending') && (
                                                 <button
-                                                    onClick={() => handleUpdateStatus(order.id, 'shipped')}
+                                                    onClick={() => openShippingModal(order)}
                                                     className="flex-1 md:flex-none px-6 py-3 bg-brand-brown text-white font-bold rounded-xl text-sm hover:bg-brand-black transition shadow-sm"
                                                 >
                                                     Ship Order
@@ -493,7 +616,69 @@ export default function MyProducts() {
                     </div>
                 )}
             </div>
-        </div>
+
+            {/* Shipping Modal */}
+            {
+                showShippingModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                        <div className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95">
+                            <h3 className="text-xl font-bold text-brand-brown mb-2 flex items-center gap-2">
+                                <Truck className="w-6 h-6 text-brand-orange" />
+                                Ship Order #{selectedOrderForShipping?.id.slice(0, 8)}
+                            </h3>
+                            <p className="text-brand-brown/60 text-sm mb-6">Enter tracking details to notify the customer.</p>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-bold text-brand-brown mb-1.5">Delivery Partner</label>
+                                    <select
+                                        className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-medium outline-none focus:border-brand-orange"
+                                        value={trackingData.deliveryPartner}
+                                        onChange={(e) => setTrackingData({ ...trackingData, deliveryPartner: e.target.value })}
+                                    >
+                                        <option value="">Select Partner...</option>
+                                        <option value="Delhivery">Delhivery</option>
+                                        <option value="India Post">India Post</option>
+                                        <option value="DTDC">DTDC</option>
+                                        <option value="Blue Dart">Blue Dart</option>
+                                        <option value="ExpressBees">ExpressBees</option>
+                                        <option value="Shadowfax">Shadowfax</option>
+                                        <option value="Dunzo">Dunzo</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-brand-brown mb-1.5">Tracking ID / Link</label>
+                                    <input
+                                        type="text"
+                                        className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-medium outline-none focus:border-brand-orange placeholder-gray-300"
+                                        placeholder="e.g. 1234567890"
+                                        value={trackingData.trackingId}
+                                        onChange={(e) => setTrackingData({ ...trackingData, trackingId: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 mt-8">
+                                <button
+                                    onClick={() => setShowShippingModal(false)}
+                                    className="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl hover:bg-gray-200 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={submitShipping}
+                                    disabled={!trackingData.deliveryPartner || !trackingData.trackingId}
+                                    className="flex-1 py-3 bg-brand-brown text-white font-bold rounded-xl hover:bg-brand-black transition-colors disabled:opacity-50"
+                                >
+                                    Confirm Shipment
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+        </div >
     );
 
 }

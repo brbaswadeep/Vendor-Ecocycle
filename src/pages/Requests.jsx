@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, updateDoc, deleteDoc, doc, orderBy, getDoc } from 'firebase/firestore';
-import { Loader2, MapPin, CheckCircle, XCircle, Clock, Package, Calendar, Truck, PlayCircle, Hourglass, CheckSquare, User, Phone, MessageCircle, Inbox, Trash2, ArrowRight } from 'lucide-react';
+import { Loader2, MapPin, CheckCircle, XCircle, Clock, Package, Calendar, Truck, PlayCircle, Hourglass, CheckSquare, User, Phone, MessageCircle, Inbox, Trash2, ArrowRight, Image as ImageIcon } from 'lucide-react';
 
 // ... (existing code)
 
@@ -104,12 +104,50 @@ export default function Requests() {
                     setCustomerDetails(null);
                 }
 
-                // Fetch Unsplash Image - Specific Title Match
-                let query = selectedRequest.itemName;
+                if (!selectedRequest.itemDetails?.goal) return;
 
-                // Fallback to material only if no title is present, strictly avoiding generic terms
+                // Improved Cleaning Logic: recursively strip prefixes
+                let rawGoal = selectedRequest.itemDetails.goal;
+
+                const STRIP_PREFIXES = [
+                    'Recycle as', 'Recycle into', 'Turn into', 'Convert to',
+                    'Create', 'Make', 'Build', 'Construct', 'Fabricate', 'Produce'
+                ];
+
+                // Helper to clean one pass
+                const cleanPass = (text) => {
+                    if (!text) return '';
+                    let temp = text.trim();
+                    // Remove leading punctuation (colon, dash)
+                    temp = temp.replace(/^[:\-\s]+/, '');
+
+                    // Remove known prefixes (case insensitive)
+                    for (const prefix of STRIP_PREFIXES) {
+                        const regex = new RegExp(`^${prefix}([:\\s]+|$)`, 'i');
+                        if (regex.test(temp)) {
+                            temp = temp.replace(regex, '');
+                            return temp.trim(); // Return early to re-check for next prefix (e.g., "Recycle as: Create")
+                        }
+                    }
+                    return temp;
+                };
+
+                // Iteratively clean until stable
+                let query = rawGoal;
+                let prevQuery = '';
+                while (query !== prevQuery) {
+                    prevQuery = query;
+                    query = cleanPass(query);
+                }
+
+                // Fallback 2: "Recycled [Material] [Goal]"
                 if (!query && selectedRequest.itemDetails?.material) {
-                    query = selectedRequest.itemDetails.material;
+                    query = `recycled ${selectedRequest.itemDetails.material} product`;
+                }
+
+                // Fallback 3: "Recycled [ItemName]"
+                if (!query && selectedRequest.itemName) {
+                    query = `recycled ${selectedRequest.itemName}`;
                 }
 
                 if (query) {
@@ -357,6 +395,7 @@ export default function Requests() {
     const handleUpdateTracking = async (stageId, label) => {
         if (!selectedRequest) return;
         try {
+            console.log("Updating tracking to:", stageId);
             // If marking as completed, verify first
             if (stageId === 'completed' && !window.confirm(t('confirm_mark_complete'))) return;
 
@@ -389,6 +428,7 @@ export default function Requests() {
 
         } catch (error) {
             console.error("Error updating tracking:", error);
+            alert("Failed to update tracking: " + error.message);
         }
     };
 
@@ -709,8 +749,8 @@ export default function Requests() {
                                                             />
                                                         ) : (
                                                             <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gray-50">
-                                                                <Loader2 className="w-6 h-6 animate-spin mb-2 opacity-20" />
-                                                                <span className="text-[10px]">Loading Goal...</span>
+                                                                <ImageIcon className="w-8 h-8 opacity-20 mb-2" />
+                                                                <span className="text-[10px] text-center px-4">Image Not Available</span>
                                                             </div>
                                                         )}
                                                         {unsplashImage && <div className="absolute bottom-2 right-2 text-[10px] text-white/70 bg-black/30 px-2 py-0.5 rounded">via Unsplash</div>}
@@ -757,15 +797,18 @@ export default function Requests() {
                                                     </div>
                                                 </div>
                                             </div>
-                                            {unsplashImage || selectedRequest.itemImage ? (
+                                            {selectedRequest.itemImage || unsplashImage ? (
                                                 <div className="relative group overflow-hidden rounded-xl border border-brand-brown/10">
                                                     <img
-                                                        src={unsplashImage || selectedRequest.itemImage}
+                                                        src={selectedRequest.itemImage || unsplashImage}
                                                         alt="Item"
                                                         className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                                                     />
+                                                    <div className="absolute inset-x-0 bottom-0 bg-black/60 p-2 text-white text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        {selectedRequest.itemImage ? "Uploaded Image" : "Generic Illustration"}
+                                                    </div>
                                                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors pointer-events-none" />
-                                                    {unsplashImage && <div className="absolute bottom-2 right-2 text-[10px] text-white/70 bg-black/30 px-2 py-0.5 rounded">via Unsplash</div>}
+                                                    {!selectedRequest.itemImage && unsplashImage && <div className="absolute bottom-2 right-2 text-[10px] text-white/70 bg-black/30 px-2 py-0.5 rounded">via Unsplash</div>}
                                                 </div>
                                             ) : (
                                                 <div className="bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 text-xs">
