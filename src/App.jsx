@@ -10,6 +10,7 @@ import Earnings from './pages/Earnings';
 import Messages from './pages/Messages';
 import MyProducts from './pages/MyProducts';
 import Layout from './components/Layout';
+import EcoBot from './components/EcoBot';
 
 function PrivateRoute({ children }) {
   const { currentUser } = useAuth();
@@ -93,6 +94,7 @@ function App() {
           </Route>
 
         </Routes>
+        <EcoBot />
       </Router>
     </AuthProvider>
   );
