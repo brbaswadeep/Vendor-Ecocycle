@@ -23,44 +23,53 @@ export default function EcoBot() {
 
     const toggleOpen = () => {
         setIsOpen(!isOpen);
-        if (!isOpen) setMode('menu'); // Reset to menu when opening
+        if (!isOpen) {
+            setMode('menu');
+            if (window.Tawk_API) window.Tawk_API.minimize();
+        }
     };
 
-    const [isTawkOpen, setIsTawkOpen] = useState(false);
+    const [isTawkReady, setIsTawkReady] = useState(false);
 
     useEffect(() => {
-        // Tawk API Event Listeners
-        if (window.Tawk_API) {
-            window.Tawk_API.onChatMaximized = function () {
-                setIsTawkOpen(true);
-                setIsOpen(false); // Close EcoBot when Tawk opens
-            };
-            window.Tawk_API.onChatMinimized = function () {
-                setIsTawkOpen(false);
-            };
-            window.Tawk_API.onChatHidden = function () {
-                setIsTawkOpen(false);
-            };
-        }
-    }, [window.Tawk_API]);
+        const checkTawk = setInterval(() => {
+            if (window.Tawk_API) {
+                setIsTawkReady(true);
+                clearInterval(checkTawk);
+
+                window.Tawk_API.onChatMaximized = function () {
+                    setMode('support');
+                    if (!isOpen) setIsOpen(true);
+                };
+
+                window.Tawk_API.onChatMinimized = function () {
+                    setMode('menu');
+                };
+
+                window.Tawk_API.onChatHidden = function () {
+                    setMode('menu');
+                };
+            }
+        }, 1000);
+
+        return () => clearInterval(checkTawk);
+    }, [isOpen]);
 
     const handleOpenTawk = () => {
         if (window.Tawk_API) {
+            setMode('support');
             window.Tawk_API.showWidget();
             window.Tawk_API.maximize();
-            // setIsOpen(false); // Handled by event listener
         } else {
             alert("Support chat is initializing. Please try again in a moment.");
         }
     };
 
-    const handleBackToEcoBot = () => {
+    const handleBackToMenu = () => {
         if (window.Tawk_API) {
             window.Tawk_API.minimize();
-            setIsTawkOpen(false);
-            setIsOpen(true);
-            setMode('menu');
         }
+        setMode('menu');
     };
 
     const handleSendMessage = async (e) => {
@@ -110,7 +119,10 @@ export default function EcoBot() {
                                 {mode === 'bot' ? <Bot className="w-5 h-5" /> : <MessageCircle className="w-5 h-5" />}
                             </div>
                             <div className="text-center">
-                                <h3 className="font-bold text-sm">{mode === 'bot' ? 'Vendor Assistant' : 'Vendor Support'}</h3>
+                                <h3 className="font-bold text-sm">
+                                    {mode === 'bot' ? 'Vendor Assistant' :
+                                        mode === 'support' ? 'Support Status' : 'Vendor Support'}
+                                </h3>
                                 <p className="text-[10px] opacity-70">Always here to help</p>
                             </div>
                         </div>
@@ -202,11 +214,32 @@ export default function EcoBot() {
                             </form>
                         </div>
                     )}
+                    {/* Content: Support Mode */}
+                    {mode === 'support' && (
+                        <div className="p-6 text-center space-y-4">
+                            <div className="w-16 h-16 bg-brand-brown/10 rounded-full flex items-center justify-center mx-auto animate-pulse">
+                                <Users className="w-8 h-8 text-brand-brown" />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-lg text-brand-brown">Support Chat Active</h3>
+                                <p className="text-sm text-brand-brown/60">
+                                    The support window is open. You can chat with our team there.
+                                </p>
+                            </div>
+                            <button
+                                onClick={handleBackToMenu}
+                                className="px-6 py-2 bg-brand-brown text-white rounded-xl font-bold hover:bg-brand-black transition-colors shadow-lg flex items-center justify-center gap-2 mx-auto"
+                            >
+                                <ChevronRight className="w-4 h-4 rotate-180" />
+                                Back to Menu
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 
             {/* Toggle Button */}
-            {!isOpen && !isTawkOpen && (
+            {!isOpen && (
                 <button
                     onClick={toggleOpen}
                     className="w-14 h-14 bg-brand-brown text-white rounded-full shadow-xl hover:scale-110 active:scale-95 transition-all duration-300 flex items-center justify-center group relative overflow-hidden"
@@ -216,17 +249,6 @@ export default function EcoBot() {
 
                     {/* Notification Dot (optional) */}
                     <span className="absolute top-3 right-3 w-2.5 h-2.5 bg-brand-red border-2 border-brand-brown rounded-full z-20 animate-pulse"></span>
-                </button>
-            )}
-
-            {/* Back to EcoBot Button (Only when Tawk is open) */}
-            {isTawkOpen && (
-                <button
-                    onClick={handleBackToEcoBot}
-                    className="fixed bottom-24 right-6 z-[60] bg-brand-orange text-white px-4 py-3 rounded-full shadow-2xl hover:bg-brand-red transition-all flex items-center gap-2 animate-in slide-in-from-right-10"
-                >
-                    <Bot className="w-5 h-5" />
-                    <span className="font-bold text-sm">Open EcoBot</span>
                 </button>
             )}
         </div>
