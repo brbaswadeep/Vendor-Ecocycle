@@ -44,7 +44,11 @@ export default function Dashboard() {
                     if (data.status === 'pending') pending++;
                     else if (data.status === 'accepted' && data.acceptedBy === currentUser.uid) {
                         accepted++;
-                        totalEarnings += data.finalQuote?.finalVendorEarnings || 0;
+                        // Only count positive earnings (Service Income). Ignore buys (Expenses/Investments)
+                        const earnings = data.finalQuote?.finalVendorEarnings || 0;
+                        if (earnings > 0) {
+                            totalEarnings += earnings;
+                        }
 
                         // Check for projectMeta deadline
                         if (data.projectMeta?.estimatedCompletion) {
@@ -57,12 +61,28 @@ export default function Dashboard() {
                     else if (data.status === 'declined') declined++;
                 });
 
+                // 2. Fetch Shop Orders (Sales)
+                const shopQ = query(
+                    collection(db, "orders"),
+                    where("vendorId", "==", currentUser.uid)
+                );
+                const shopSnapshot = await getDocs(shopQ);
+
+                shopSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    // Add Shop Earnings
+                    const shopEarnings = data.priceBreakdown?.vendorEarnings || 0;
+                    if (shopEarnings > 0) {
+                        totalEarnings += shopEarnings;
+                    }
+                });
+
                 setStats({
                     pending,
                     accepted,
                     declined,
                     unreadMessages: 0,
-                    totalEarnings
+                    totalEarnings // Now includes both Service & Shop income
                 });
 
                 // 2. Process Deadlines

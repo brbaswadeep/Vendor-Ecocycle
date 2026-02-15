@@ -116,16 +116,10 @@ function LanguageSelector({ t, i18n, currentUser }) {
     const [isOpen, setIsOpen] = React.useState(false);
 
     // Languages List
+    // Languages List
     const languages = [
         { code: 'en', name: 'English', native: 'English' },
         { code: 'hi', name: 'Hindi', native: 'हिंदी' },
-        { code: 'mr', name: 'Marathi', native: 'मराठी' },
-        { code: 'ta', name: 'Tamil', native: 'தமிழ்' },
-        { code: 'te', name: 'Telugu', native: 'తెలుగు' },
-        { code: 'kn', name: 'Kannada', native: 'कन्नड़' },
-        { code: 'bn', name: 'Bengali', native: 'বাংলা' },
-        { code: 'pa', name: 'Punjabi', native: 'ਪੰਜਾਬੀ' },
-        { code: 'gu', name: 'Gujarati', native: 'ગુજરાતી' },
     ];
 
     const currentLang = languages.find(l => l.code === i18n.language) || languages[0];

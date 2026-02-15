@@ -26,13 +26,40 @@ export default function EcoBot() {
         if (!isOpen) setMode('menu'); // Reset to menu when opening
     };
 
+    const [isTawkOpen, setIsTawkOpen] = useState(false);
+
+    useEffect(() => {
+        // Tawk API Event Listeners
+        if (window.Tawk_API) {
+            window.Tawk_API.onChatMaximized = function () {
+                setIsTawkOpen(true);
+                setIsOpen(false); // Close EcoBot when Tawk opens
+            };
+            window.Tawk_API.onChatMinimized = function () {
+                setIsTawkOpen(false);
+            };
+            window.Tawk_API.onChatHidden = function () {
+                setIsTawkOpen(false);
+            };
+        }
+    }, [window.Tawk_API]);
+
     const handleOpenTawk = () => {
         if (window.Tawk_API) {
             window.Tawk_API.showWidget();
             window.Tawk_API.maximize();
-            setIsOpen(false);
+            // setIsOpen(false); // Handled by event listener
         } else {
             alert("Support chat is initializing. Please try again in a moment.");
+        }
+    };
+
+    const handleBackToEcoBot = () => {
+        if (window.Tawk_API) {
+            window.Tawk_API.minimize();
+            setIsTawkOpen(false);
+            setIsOpen(true);
+            setMode('menu');
         }
     };
 
@@ -67,22 +94,28 @@ export default function EcoBot() {
                 <div className="bg-white w-80 sm:w-96 rounded-3xl shadow-2xl border border-brand-brown/10 overflow-hidden animate-in slide-in-from-bottom-5 duration-300 origin-bottom-right">
 
                     {/* Header */}
-                    <div className="bg-brand-brown p-4 flex justify-between items-center text-white">
-                        <div className="flex items-center gap-2">
-                            {mode === 'bot' && (
-                                <button onClick={() => setMode('menu')} className="hover:bg-white/10 p-1 rounded-full mr-1">
-                                    <ChevronRight className="w-5 h-5 rotate-180" />
-                                </button>
-                            )}
+                    <div className="bg-brand-brown p-4 flex justify-between items-center text-white relative">
+                        {mode === 'bot' && (
+                            <button
+                                onClick={() => setMode('menu')}
+                                className="absolute left-4 p-1 hover:bg-white/20 rounded-full transition-colors"
+                                title="Back to Menu"
+                            >
+                                <ChevronRight className="w-6 h-6 rotate-180" />
+                            </button>
+                        )}
+
+                        <div className="flex items-center gap-2 mx-auto">
                             <div className="p-2 bg-white/10 rounded-full">
                                 {mode === 'bot' ? <Bot className="w-5 h-5" /> : <MessageCircle className="w-5 h-5" />}
                             </div>
-                            <div>
+                            <div className="text-center">
                                 <h3 className="font-bold text-sm">{mode === 'bot' ? 'Vendor Assistant' : 'Vendor Support'}</h3>
                                 <p className="text-[10px] opacity-70">Always here to help</p>
                             </div>
                         </div>
-                        <button onClick={toggleOpen} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+
+                        <button onClick={toggleOpen} className="absolute right-4 p-2 hover:bg-white/10 rounded-full transition-colors">
                             <X className="w-5 h-5" />
                         </button>
                     </div>
@@ -173,7 +206,7 @@ export default function EcoBot() {
             )}
 
             {/* Toggle Button */}
-            {!isOpen && (
+            {!isOpen && !isTawkOpen && (
                 <button
                     onClick={toggleOpen}
                     className="w-14 h-14 bg-brand-brown text-white rounded-full shadow-xl hover:scale-110 active:scale-95 transition-all duration-300 flex items-center justify-center group relative overflow-hidden"
@@ -183,6 +216,17 @@ export default function EcoBot() {
 
                     {/* Notification Dot (optional) */}
                     <span className="absolute top-3 right-3 w-2.5 h-2.5 bg-brand-red border-2 border-brand-brown rounded-full z-20 animate-pulse"></span>
+                </button>
+            )}
+
+            {/* Back to EcoBot Button (Only when Tawk is open) */}
+            {isTawkOpen && (
+                <button
+                    onClick={handleBackToEcoBot}
+                    className="fixed bottom-24 right-6 z-[60] bg-brand-orange text-white px-4 py-3 rounded-full shadow-2xl hover:bg-brand-red transition-all flex items-center gap-2 animate-in slide-in-from-right-10"
+                >
+                    <Bot className="w-5 h-5" />
+                    <span className="font-bold text-sm">Open EcoBot</span>
                 </button>
             )}
         </div>

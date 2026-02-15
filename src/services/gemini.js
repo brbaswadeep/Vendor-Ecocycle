@@ -1,14 +1,36 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const genAI = new GoogleGenerativeAI(API_KEY);
-const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash", // Using a faster/cheaper model for chat
-    generationConfig: {
-        maxOutputTokens: 1000,
-        temperature: 0.7,
+const API_KEYS = [
+    import.meta.env.VITE_GEMINI_API_KEY,
+    import.meta.env.VITE_GEMINI_API_KEY_BACKUP_1,
+    import.meta.env.VITE_GEMINI_API_KEY_BACKUP_2
+].filter(Boolean);
+
+let currentKeyIndex = 0;
+
+const getGenAIModel = () => {
+    const apiKey = API_KEYS[currentKeyIndex];
+    if (!apiKey) throw new Error("No valid Gemini API keys available.");
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    return genAI.getGenerativeModel({
+        model: "gemini-2.0-flash", // Using a faster/cheaper model for chat
+        generationConfig: {
+            maxOutputTokens: 1000,
+            temperature: 0.7,
+        }
+    });
+};
+
+// Helper to rotate key on failure
+const rotateKey = () => {
+    if (currentKeyIndex < API_KEYS.length - 1) {
+        currentKeyIndex++;
+        console.warn(`Switching to Backup Gemini Key #${currentKeyIndex}`);
+        return true;
     }
-});
+    return false;
+};
 
 export async function chatWithEcoBot(userMessage, chatHistory = []) {
     try {
@@ -45,11 +67,15 @@ export async function chatWithEcoBot(userMessage, chatHistory = []) {
       **EcoBot**:
     `;
 
+        const model = getGenAIModel();
         const result = await model.generateContent(prompt);
         const response = await result.response;
         return response.text();
     } catch (error) {
         console.error("EcoBot Chat Error:", error);
+        if (rotateKey()) {
+            return chatWithEcoBot(userMessage, chatHistory);
+        }
         return "I'm having trouble connecting right now. Please check your internet or try again later.";
     }
 }
