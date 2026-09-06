@@ -164,6 +164,7 @@ export default function LandingPage() {
                                         type="password"
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
+                                        autoComplete="current-password"
                                         className="block w-full pl-10 pr-3 py-3 border border-brand-brown/20 rounded-lg leading-5 bg-brand-cream/20 text-brand-black placeholder-brand-brown/30 focus:outline-none focus:ring-1 focus:ring-brand-red focus:border-brand-red sm:text-sm"
                                         placeholder="••••••••"
                                         required
@@ -353,6 +354,7 @@ export default function LandingPage() {
                                         type="password"
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
+                                        autoComplete="new-password"
                                         className="block w-full pl-10 px-4 py-3 border border-white bg-white rounded-lg shadow-sm placeholder-gray-300 text-brand-black focus:ring-2 focus:ring-brand-red focus:border-transparent transition-shadow"
                                         placeholder="••••••••"
                                         required

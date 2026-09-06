@@ -3,7 +3,7 @@ import { db, storage } from '../firebase';
 import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../context/AuthContext';
-import { Plus, Package, Truck, Tag, DollarSign, Image as ImageIcon, Loader2, CheckCircle, Info, Recycle, User, Trash2, History } from 'lucide-react';
+import { Plus, Package, Truck, Tag, DollarSign, Image as ImageIcon, Loader2, CheckCircle, Info, Recycle, User, Trash2, History, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 export default function MyProducts() {
@@ -37,7 +37,8 @@ export default function MyProducts() {
         type: 'new', // 'new' | 'recycled'
         sourceType: 'inventory', // 'inventory' | 'ingredient'
         sourceInventoryId: '', // if type is recycled
-        image: null // base64 for preview/upload
+        image: null, // primary image
+        images: [] // array of all product images
     });
 
     const CATEGORIES = ["General", "Gardening", "Kitchen", "Accessories", "Outdoor", "Decor", "Furniture"];
@@ -95,16 +96,57 @@ export default function MyProducts() {
         }
     };
 
-    // Image Handler
+    // Multiple Images Handler
     const handleImageChange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0) return;
+
+        files.forEach(file => {
+            if (file.size > 5 * 1024 * 1024) {
+                alert(`File ${file.name} is larger than 5MB and was skipped.`);
+                return;
+            }
             const reader = new FileReader();
             reader.onloadend = () => {
-                setFormData({ ...formData, image: reader.result });
+                setFormData(prev => {
+                    const currentImages = prev.images || [];
+                    const updatedImages = [...currentImages, reader.result];
+                    return {
+                        ...prev,
+                        images: updatedImages,
+                        image: prev.image || reader.result
+                    };
+                });
             };
             reader.readAsDataURL(file);
-        }
+        });
+        e.target.value = '';
+    };
+
+    const handleRemoveImage = (index) => {
+        setFormData(prev => {
+            const updatedImages = (prev.images || []).filter((_, i) => i !== index);
+            return {
+                ...prev,
+                images: updatedImages,
+                image: updatedImages[0] || null
+            };
+        });
+    };
+
+    const handleSetPrimaryImage = (index) => {
+        setFormData(prev => {
+            const list = prev.images || [];
+            if (!list[index]) return prev;
+            const chosen = list[index];
+            const remaining = list.filter((_, i) => i !== index);
+            const reordered = [chosen, ...remaining];
+            return {
+                ...prev,
+                images: reordered,
+                image: chosen
+            };
+        });
     };
 
     // Submit Handler
@@ -113,18 +155,44 @@ export default function MyProducts() {
         setIsSubmitting(true);
 
         try {
-            let imageUrl = formData.image;
+            const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'drrjsmqsh';
+            const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || 'ecocycle';
 
-            // Upload Image if it's a base64 string (newly selected)
-            if (formData.image && formData.image.startsWith('data:')) {
-                const imageRef = ref(storage, `products/${currentUser.uid}/${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
-                await uploadString(imageRef, formData.image, 'data_url');
-                imageUrl = await getDownloadURL(imageRef);
+            const currentImages = formData.images && formData.images.length > 0
+                ? formData.images
+                : (formData.image ? [formData.image] : []);
+
+            let uploadedUrls = [];
+
+            // Upload any base64 images to Cloudinary, keep existing URLs
+            for (const img of currentImages) {
+                if (img && img.startsWith('data:')) {
+                    const cloudFormData = new FormData();
+                    cloudFormData.append('file', img);
+                    cloudFormData.append('upload_preset', uploadPreset);
+
+                    const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+                        method: 'POST',
+                        body: cloudFormData
+                    });
+
+                    if (!response.ok) {
+                        throw new Error("Failed to upload image to Cloudinary");
+                    }
+
+                    const data = await response.json();
+                    uploadedUrls.push(data.secure_url);
+                } else if (img) {
+                    uploadedUrls.push(img);
+                }
             }
+
+            const primaryImageUrl = uploadedUrls[0] || null;
 
             const productData = {
                 ...formData,
-                image: imageUrl,
+                images: uploadedUrls,
+                image: primaryImageUrl,
                 price: Number(formData.price),
                 quantity: Number(formData.quantity) || 1,
                 vendorId: currentUser.uid,
@@ -160,7 +228,8 @@ export default function MyProducts() {
                 type: 'new',
                 sourceType: 'inventory',
                 sourceInventoryId: '',
-                image: null
+                image: null,
+                images: []
             });
             setIsAddingMode(false);
             setEditingId(null);
@@ -220,6 +289,10 @@ export default function MyProducts() {
 
     // Edit Handler
     const handleEdit = (product) => {
+        const prodImages = product.images && product.images.length > 0
+            ? product.images
+            : (product.image ? [product.image] : []);
+
         setFormData({
             name: product.name,
             price: product.price,
@@ -229,7 +302,8 @@ export default function MyProducts() {
             type: product.type || 'new',
             sourceType: product.sourceType || 'inventory',
             sourceInventoryId: product.sourceInventoryId || '',
-            image: product.image
+            image: product.image || prodImages[0] || null,
+            images: prodImages
         });
         setEditingId(product.id);
         setIsAddingMode(true);
@@ -267,7 +341,7 @@ export default function MyProducts() {
                                 setEditingId(null); // Reset if canceling
                                 setFormData({
                                     name: '', price: '', quantity: 1, category: 'General', description: '',
-                                    type: 'new', sourceType: 'inventory', sourceInventoryId: '', image: null
+                                    type: 'new', sourceType: 'inventory', sourceInventoryId: '', image: null, images: []
                                 });
                             }
                         }}
@@ -319,16 +393,100 @@ export default function MyProducts() {
                                 <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                     {/* ... (Keep existing form content, just updated classes slightly for polish) ... */}
                                     <div className="space-y-6">
-                                        <div className="border-2 border-dashed border-gray-300 rounded-2xl h-80 flex flex-col items-center justify-center relative overflow-hidden bg-gray-50 group cursor-pointer hover:border-brand-green/50 transition">
-                                            <input type="file" onChange={handleImageChange} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
-                                            {formData.image ? (
-                                                <img src={formData.image} alt="Preview" className="w-full h-full object-cover" />
-                                            ) : (
-                                                <div className="text-center text-gray-400">
-                                                    <ImageIcon className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                                                    <span className="text-sm font-bold block">Click to Upload Image</span>
-                                                    <span className="text-xs opacity-70">JPG, PNG up to 5MB</span>
+                                        {/* Multi-Image Preview & Upload */}
+                                        <div className="space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <label className="block text-sm font-bold text-brand-brown">
+                                                    Product Photos {formData.images?.length > 0 && `(${formData.images.length})`}
+                                                </label>
+                                                <span className="text-xs text-brand-brown/50">First image is primary</span>
+                                            </div>
+
+                                            {formData.images && formData.images.length > 0 ? (
+                                                <div className="space-y-3">
+                                                    {/* Primary Main Image Preview */}
+                                                    <div className="relative h-64 w-full rounded-2xl overflow-hidden bg-gray-100 border border-gray-200 group">
+                                                        <img
+                                                            src={formData.images[0]}
+                                                            alt="Primary product preview"
+                                                            className="w-full h-full object-cover"
+                                                        />
+                                                        <div className="absolute top-3 left-3 bg-brand-brown text-white text-[11px] font-bold px-3 py-1 rounded-full shadow-md flex items-center gap-1">
+                                                            <CheckCircle className="w-3.5 h-3.5 text-brand-green" /> Primary Photo
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveImage(0)}
+                                                            className="absolute top-3 right-3 p-2 bg-white/90 rounded-full shadow hover:bg-red-50 hover:text-red-500 transition-colors"
+                                                            title="Remove Image"
+                                                        >
+                                                            <X className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Thumbnails list + Add More */}
+                                                    <div className="grid grid-cols-4 gap-2">
+                                                        {formData.images.map((img, idx) => (
+                                                            <div
+                                                                key={idx}
+                                                                className={`relative h-20 rounded-xl overflow-hidden border-2 cursor-pointer group ${
+                                                                    idx === 0 ? 'border-brand-brown ring-2 ring-brand-brown/20' : 'border-gray-200 hover:border-gray-400'
+                                                                }`}
+                                                                onClick={() => handleSetPrimaryImage(idx)}
+                                                                title={idx === 0 ? 'Primary Photo' : 'Click to make primary'}
+                                                            >
+                                                                <img src={img} alt={`Thumb ${idx}`} className="w-full h-full object-cover" />
+                                                                {idx === 0 ? (
+                                                                    <div className="absolute inset-x-0 bottom-0 bg-brand-brown/90 text-white text-[9px] font-bold py-0.5 text-center">
+                                                                        Primary
+                                                                    </div>
+                                                                ) : (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleRemoveImage(idx);
+                                                                        }}
+                                                                        className="absolute top-1 right-1 p-1 bg-white/90 rounded-full shadow opacity-0 group-hover:opacity-100 hover:bg-red-50 hover:text-red-500 transition"
+                                                                        title="Remove"
+                                                                    >
+                                                                        <X className="w-3 h-3" />
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        ))}
+
+                                                        {/* Add More button */}
+                                                        <label className="h-20 rounded-xl border-2 border-dashed border-gray-300 hover:border-brand-brown flex flex-col items-center justify-center cursor-pointer bg-gray-50 hover:bg-gray-100 transition text-gray-500">
+                                                            <Plus className="w-5 h-5 mb-1" />
+                                                            <span className="text-[10px] font-bold">Add More</span>
+                                                            <input
+                                                                type="file"
+                                                                multiple
+                                                                accept="image/*"
+                                                                onChange={handleImageChange}
+                                                                className="hidden"
+                                                            />
+                                                        </label>
+                                                    </div>
                                                 </div>
+                                            ) : (
+                                                <label className="border-2 border-dashed border-gray-300 rounded-2xl h-72 flex flex-col items-center justify-center relative overflow-hidden bg-gray-50 group cursor-pointer hover:border-brand-green/50 transition">
+                                                    <input
+                                                        type="file"
+                                                        multiple
+                                                        accept="image/*"
+                                                        onChange={handleImageChange}
+                                                        className="hidden"
+                                                    />
+                                                    <div className="text-center text-gray-400 p-6">
+                                                        <div className="w-14 h-14 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto mb-3 text-brand-brown/50 group-hover:scale-110 transition">
+                                                            <ImageIcon className="w-7 h-7" />
+                                                        </div>
+                                                        <span className="text-sm font-bold block text-brand-brown">Click to Upload Photos</span>
+                                                        <span className="text-xs text-gray-400 mt-1 block">Select one or multiple images (JPG, PNG up to 5MB)</span>
+                                                    </div>
+                                                </label>
                                             )}
                                         </div>
 
@@ -502,6 +660,11 @@ export default function MyProducts() {
                                             {product.type === 'recycled' && (
                                                 <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm text-green-700 text-[10px] font-bold px-2.5 py-1 rounded-full flex items-center gap-1 shadow-sm">
                                                     <CheckCircle className="w-3 h-3" /> RECYCLED
+                                                </div>
+                                            )}
+                                            {product.images && product.images.length > 1 && (
+                                                <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+                                                    <ImageIcon className="w-3 h-3" /> {product.images.length} photos
                                                 </div>
                                             )}
                                             <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg text-[10px] font-bold text-brand-brown shadow-sm uppercase tracking-wider">

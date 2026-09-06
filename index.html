@@ -6,6 +6,39 @@
   <link rel="icon" type="image/png" href="/favicon.png" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>vendor-panel</title>
+  <!--AudioContext guard to prevent browser extension PatchedAC errors from failing on clicks-->
+  <script type="text/javascript">
+    (function () {
+      try {
+        var createMockAC = function () {
+          return {
+            createGain: function () { return { gain: { value: 1 }, connect: function () { } }; },
+            createOscillator: function () { return { connect: function () { }, start: function () { }, stop: function () { } }; },
+            createBufferSource: function () { return { connect: function () { }, start: function () { }, stop: function () { } }; },
+            destination: {},
+            currentTime: 0,
+            state: 'running',
+            close: function () { return Promise.resolve(); },
+            resume: function () { return Promise.resolve(); },
+            suspend: function () { return Promise.resolve(); }
+          };
+        };
+        var OrigAC = window.AudioContext || window.webkitAudioContext;
+        if (OrigAC) {
+          var SafeAC = function () {
+            try {
+              return new OrigAC();
+            } catch (e) {
+              return createMockAC();
+            }
+          };
+          SafeAC.prototype = OrigAC.prototype;
+          window.AudioContext = SafeAC;
+          window.webkitAudioContext = SafeAC;
+        }
+      } catch (_) {}
+    })();
+  </script>
   <!--Start of Tawk.to Script-->
   <script type="text/javascript">
     var Tawk_API = Tawk_API || {}, Tawk_LoadStart = new Date();
