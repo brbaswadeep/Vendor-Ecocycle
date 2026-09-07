@@ -3,6 +3,7 @@ import {
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
     signOut,
+    sendPasswordResetEmail,
     onAuthStateChanged
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -18,7 +19,7 @@ export function AuthProvider({ children }) {
     const [currentUser, setCurrentUser] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    async function signup(email, password, businessName, contactPerson, businessType) {
+    async function signup(email, password, businessName, contactPerson, businessType, acceptsWetWaste = false) {
         // 1. Create Auth User
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
@@ -29,6 +30,7 @@ export function AuthProvider({ children }) {
             businessName,
             contactPerson,
             businessType,
+            acceptsWetWaste: Boolean(acceptsWetWaste),
             role: 'vendor',
             createdAt: new Date().toISOString()
         });
@@ -56,6 +58,10 @@ export function AuthProvider({ children }) {
 
     function logout() {
         return signOut(auth);
+    }
+
+    function resetPassword(email) {
+        return sendPasswordResetEmail(auth, email);
     }
 
     const refreshProfile = async () => {
@@ -99,6 +105,7 @@ export function AuthProvider({ children }) {
         signup,
         login,
         logout,
+        resetPassword,
         refreshProfile
     };
 

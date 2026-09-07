@@ -9,9 +9,9 @@ export default {
       colors: {
         brand: {
           red: '#E35336',    // Primary Action
-          cream: '#F5F5DC',  // Background
+          cream: '#F5F5DC',  // Background (exact brand cream matching customer app)
           orange: '#F4A460', // Secondary
-          brown: '#A0522D',  // Accent
+          brown: '#5C2812',  // Accent & Text (Dark roasted coffee)
           black: '#000000',  // Text (Strict Black)
           green: '#2E8B57',  // SeaGreen
         }

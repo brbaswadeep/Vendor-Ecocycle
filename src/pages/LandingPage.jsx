@@ -1,396 +1,572 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next'; // Import useTranslation
-
-import logo from '../assets/logo.png'; // Make sure to import logo
+import { useTranslation } from 'react-i18next';
+import { 
+    Mail, Lock, Eye, EyeOff, Building2, User, Briefcase, 
+    ArrowRight, AlertCircle, Loader2 
+} from 'lucide-react';
+import logo from '../assets/logo.png';
 
 export default function LandingPage() {
-    const { t } = useTranslation(); // Hook
-    const [isLogin, setIsLogin] = useState(false); // Default to Register based on Image 0, or Login? Let's default to Register as "Partner Registration" is Image 0.
+    const { t } = useTranslation();
+    const [isLogin, setIsLogin] = useState(true);
+    const [isForgotPassword, setIsForgotPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [resetSuccess, setResetSuccess] = useState('');
 
-    const { login, signup } = useAuth();
+    const { login, signup, resetPassword } = useAuth();
     const navigate = useNavigate();
 
-    // Form Stats
+    // Form State
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [businessName, setBusinessName] = useState('');
     const [contactPerson, setContactPerson] = useState('');
     const [businessType, setBusinessType] = useState('');
+    const [acceptsWetWaste, setAcceptsWetWaste] = useState(false);
     const [terms, setTerms] = useState(false);
-    const [keepLogged, setKeepLogged] = useState(false);
+    const [keepLogged, setKeepLogged] = useState(true);
+
+    // Password visibility
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
     const executeRecaptcha = (action) => {
         return new Promise((resolve) => {
             if (!window.grecaptcha) {
-                console.error("reCAPTCHA not loaded");
                 resolve(null);
                 return;
             }
             window.grecaptcha.enterprise.ready(async () => {
                 try {
                     const token = await window.grecaptcha.enterprise.execute('6Lf4N2UsAAAAANhe_R1rRUZ22M-giKsMGAYom4R6', { action });
-                    console.log(`Recaptcha Token Generated (${action}):`, token);
                     resolve(token);
-                } catch (error) {
-                    console.error("reCAPTCHA execution failed:", error);
+                } catch {
                     resolve(null);
                 }
             });
         });
     };
 
-    async function handleRegister(e) {
-        e.preventDefault();
-        setError('');
-
-        if (!terms) {
-            setError("You must agree to the Terms of Service.");
-            return;
-        }
-
-        setLoading(true);
-        try {
-            // Generate reCAPTCHA Token
-            await executeRecaptcha('VENDOR_REGISTER');
-
-            await signup(email, password, businessName, contactPerson, businessType);
-            navigate('/dashboard');
-        } catch (err) {
-            console.error(err);
-            setError(err.message.replace("Firebase: ", ""));
-        }
-        setLoading(false);
-    }
-
     async function handleLogin(e) {
         e.preventDefault();
         setError('');
         setLoading(true);
         try {
-            // Generate reCAPTCHA Token
             await executeRecaptcha('VENDOR_LOGIN');
-
             await login(email, password);
             navigate('/dashboard');
         } catch (err) {
-            console.error(err);
-            setError(err.message.replace("Firebase: ", ""));
+            setError(err.message?.replace("Firebase: ", "") || "Sign in failed. Check your credentials.");
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     }
 
-    if (isLogin) {
-        // LOGIN VIEW (Image 1: Vendor Portal)
-        return (
-            <div className="min-h-screen bg-brand-cream flex items-center justify-center p-4 lg:p-0 font-sans relative overflow-hidden">
-                {/* Background decorative elements if needed */}
+    async function handleRegister(e) {
+        e.preventDefault();
+        setError('');
 
-                <div className="max-w-7xl w-full flex flex-row items-center justify-between mx-auto lg:px-20">
+        if (password !== confirmPassword) {
+            setError("Passwords do not match.");
+            return;
+        }
+        if (password.length < 6) {
+            setError("Password must be at least 6 characters.");
+            return;
+        }
+        if (!terms) {
+            setError("Please agree to the terms to proceed.");
+            return;
+        }
 
-                    {/* Left: Text Content */}
-                    <div className="hidden lg:flex flex-col w-1/2 space-y-6 pr-10">
-                        {/* Logo */}
-                        <div className="flex items-center gap-2 mb-4">
-                            <img src={logo} alt="EcoCycle Logo" className="w-16 h-16 object-contain" />
-                        </div>
+        setLoading(true);
+        try {
+            await executeRecaptcha('VENDOR_REGISTER');
+            await signup(email, password, businessName, contactPerson, businessType, acceptsWetWaste);
+            navigate('/dashboard');
+        } catch (err) {
+            setError(err.message?.replace("Firebase: ", "") || "Registration failed.");
+        } finally {
+            setLoading(false);
+        }
+    }
 
-                        <h1 className="text-6xl font-extrabold text-brand-brown leading-tight">
-                            {t('hero_title').split('Vendors')[0]} <span className="text-brand-orange">Vendors</span> <br />
-                            {t('hero_title').split('Vendors')[1] || t('hero_title').split(' ').slice(2).join(' ')}
-                        </h1>
-                        <p className="text-brand-brown/80 text-lg max-w-lg leading-relaxed">
-                            {t('hero_subtitle')}
-                        </p>
+    async function handleForgotPassword(e) {
+        e.preventDefault();
+        setError('');
+        setResetSuccess('');
+        if (!email) {
+            setError("Please enter your email.");
+            return;
+        }
 
-                        <div className="flex gap-6 mt-8">
-                            <div className="bg-brand-cream border border-brand-brown/10 p-6 rounded-2xl w-48 bg-white/50">
-                                <div className="text-brand-red font-bold flex items-center gap-2 mb-2">
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                                    {t('efficiency_stat')}
-                                </div>
-                                <div className="text-3xl font-extrabold text-brand-brown">98.5%</div>
-                                <div className="text-xs text-brand-brown/60 mt-1">{t('route_opt_score')}</div>
+        setLoading(true);
+        try {
+            await resetPassword(email);
+            setResetSuccess("Reset link sent to your email.");
+        } catch (err) {
+            setError(err.message?.replace("Firebase: ", "") || "Failed to send reset link.");
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    return (
+        <div className="min-h-screen flex flex-col lg:flex-row font-sans bg-white overflow-y-auto">
+            {/* ============================================================ */}
+            {/* LEFT PANEL: ON-THEME GEOMETRIC ART (CREAM + BRAND COLORS) */}
+            {/* ============================================================ */}
+            <div className="hidden lg:block w-1/2 bg-brand-cream relative overflow-hidden h-screen sticky top-0 order-2 lg:order-1">
+                {/* Abstract Circular / Industrial Geometric Composition */}
+                <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 h-full w-full">
+
+                    {/* Top Left: Concentric Arcs & Gear Motif */}
+                    <div className="bg-brand-red/95 relative overflow-hidden flex items-center justify-center p-8">
+                        <div className="absolute -left-16 -top-16 w-80 h-80 rounded-full border-[36px] border-brand-orange/80"></div>
+                        <div className="absolute -left-4 -top-4 w-48 h-48 rounded-full border-[24px] border-brand-brown/60"></div>
+                        <div className="relative z-10 text-white/90 text-center">
+                            <div className="w-16 h-16 rounded-2xl bg-brand-black flex items-center justify-center mx-auto mb-3 shadow-xl">
+                                <div className="w-6 h-6 border-4 border-brand-orange rotate-45"></div>
                             </div>
-                            <div className="bg-brand-cream border border-brand-brown/10 p-6 rounded-2xl w-48 bg-white/50">
-                                <div className="text-brand-orange font-bold flex items-center gap-2 mb-2">
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                    {t('impact_stat')}
-                                </div>
-                                <div className="text-3xl font-extrabold text-brand-brown">12.4k</div>
-                                <div className="text-xs text-brand-brown/60 mt-1">{t('co2_saved')}</div>
+                            <span className="text-[11px] font-black uppercase tracking-widest text-brand-cream/80">
+                                Sourcing & Dispatch
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Top Right: High Contrast Bauhaus Cycle */}
+                    <div className="bg-brand-black relative overflow-hidden flex flex-col justify-center items-center p-8">
+                        <div className="w-44 h-44 rounded-full border-8 border-brand-orange/40 flex items-center justify-center relative">
+                            <div className="w-28 h-28 rounded-full bg-brand-red flex items-center justify-center shadow-2xl">
+                                <div className="w-10 h-10 rounded-full bg-brand-cream"></div>
+                            </div>
+                            <div className="absolute top-0 right-4 w-6 h-6 rounded-full bg-brand-green"></div>
+                        </div>
+                        <div className="mt-6 flex gap-2">
+                            {[...Array(5)].map((_, i) => (
+                                <div key={i} className="w-2 h-2 rounded-full bg-brand-cream/30"></div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Bottom Left: Geometric Diagonal Curves */}
+                    <div className="bg-brand-brown relative overflow-hidden flex items-end p-8">
+                        <div className="absolute top-0 right-0 w-60 h-60 bg-brand-orange/30 rounded-bl-full"></div>
+                        <div className="absolute top-0 right-0 w-36 h-36 bg-brand-red/60 rounded-bl-full"></div>
+                        <div className="relative z-10">
+                            <div className="text-3xl font-black text-brand-cream tracking-tight mb-1">
+                                98.5%
+                            </div>
+                            <div className="text-xs font-bold text-brand-orange uppercase tracking-wider">
+                                Route & Volume Efficiency
                             </div>
                         </div>
                     </div>
 
-                    {/* Right: Login Card */}
-                    <div className="w-full lg:w-[480px] bg-white rounded-3xl shadow-2xl p-8 lg:p-12 relative z-10 border-t-8 border-brand-red/80">
-                        <h2 className="text-3xl font-bold text-brand-brown mb-2">{t('login_title')}</h2>
-                        <p className="text-brand-brown/60 mb-8">{t('login_subtitle')}</p>
+                    {/* Bottom Right: Clean Brand Palette Harmony */}
+                    <div className="bg-brand-cream relative overflow-hidden flex items-center justify-center p-8 border-l border-t border-brand-brown/10">
+                        <div className="absolute -right-12 -bottom-12 w-64 h-64 rounded-full bg-brand-orange/30"></div>
+                        <div className="relative z-10 w-full text-center">
+                            <div className="inline-block p-6 rounded-3xl bg-white border border-brand-brown/15 shadow-xl">
+                                <div className="w-12 h-12 rounded-xl bg-brand-red/10 text-brand-red flex items-center justify-center mx-auto mb-2 font-black text-xl">
+                                    ♻
+                                </div>
+                                <div className="text-sm font-black text-brand-black">
+                                    EcoCycle Partner
+                                </div>
+                                <div className="text-[10px] font-bold text-brand-brown/60 uppercase tracking-widest mt-0.5">
+                                    Verified Facility
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
-                        {error && <div className="mb-4 text-sm text-brand-red bg-red-50 p-3 rounded-lg border border-brand-red/20">{error}</div>}
+                </div>
 
-                        <form onSubmit={handleLogin} className="space-y-6">
+                {/* Central Interlocking Floating Emblem */}
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 rounded-full bg-white/90 backdrop-blur-md border-4 border-brand-brown/15 shadow-2xl flex flex-col items-center justify-center z-20 pointer-events-none">
+                    <div className="w-24 h-24 rounded-full bg-brand-black flex items-center justify-center text-white">
+                        <div className="w-12 h-12 rounded-full border-4 border-brand-orange flex items-center justify-center">
+                            <div className="w-4 h-4 rounded-full bg-brand-red"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* ============================================================ */}
+            {/* RIGHT PANEL: AUTH FORM (SIGN IN & REGISTER) */}
+            {/* ============================================================ */}
+            <div className="w-full lg:w-1/2 flex flex-col justify-center px-8 lg:px-16 xl:px-24 py-12 bg-white relative order-1 lg:order-2">
+                <div className="w-full max-w-md mx-auto">
+                    
+                    {/* Header */}
+                    <div className="text-center mb-8">
+                        <img 
+                            src={logo} 
+                            alt="EcoCycle Logo" 
+                            className="h-20 w-auto object-contain mx-auto mb-4 hover:scale-105 transition-transform duration-300 drop-shadow-sm cursor-pointer"
+                            onClick={() => navigate('/')}
+                        />
+                        <h1 className="text-3xl font-extrabold text-brand-black mb-1">
+                            {isForgotPassword ? 'Reset Password' : (isLogin ? 'Vendor Portal' : 'Register Facility')}
+                        </h1>
+                        <p className="text-sm text-brand-brown/70">
+                            {isForgotPassword 
+                                ? 'Enter your email to receive a password reset link' 
+                                : (isLogin ? 'Sign in to manage incoming orders & payouts' : 'Join the verified partner network')}
+                        </p>
+                    </div>
+
+                    {/* Simple Switcher */}
+                    {!isForgotPassword && (
+                        <div className="flex bg-brand-cream/70 p-1 rounded-xl mb-6 border border-brand-brown/10">
+                            <button
+                                type="button"
+                                onClick={() => { setIsLogin(true); setError(''); }}
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                                    isLogin 
+                                        ? 'bg-white text-brand-black shadow-sm' 
+                                        : 'text-brand-brown/60 hover:text-brand-brown'
+                                }`}
+                            >
+                                Sign In
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { setIsLogin(false); setError(''); }}
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                                    !isLogin 
+                                        ? 'bg-white text-brand-black shadow-sm' 
+                                        : 'text-brand-brown/60 hover:text-brand-brown'
+                                }`}
+                            >
+                                Register Facility
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Alerts */}
+                    {error && (
+                        <div className="mb-4 bg-red-50 border-l-4 border-brand-red p-3 text-sm text-brand-red font-medium rounded-r flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                            <span>{error}</span>
+                        </div>
+                    )}
+                    {resetSuccess && (
+                        <div className="mb-4 bg-emerald-50 border-l-4 border-brand-green p-3 text-sm text-brand-green font-medium rounded-r">
+                            {resetSuccess}
+                        </div>
+                    )}
+
+                    {/* FORGOT PASSWORD */}
+                    {isForgotPassword ? (
+                        <form onSubmit={handleForgotPassword} className="space-y-4">
                             <div>
-                                <label className="block text-sm font-bold text-brand-brown mb-2">{t('email_label')}</label>
+                                <label className="block text-xs font-bold text-brand-black mb-1.5 uppercase tracking-wide">
+                                    Work Email <span className="text-brand-red">*</span>
+                                </label>
                                 <div className="relative">
-                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                        <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                                    </div>
                                     <input
                                         type="email"
+                                        required
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
-                                        className="block w-full pl-10 pr-3 py-3 border border-brand-brown/20 rounded-lg leading-5 bg-brand-cream/20 text-brand-black placeholder-brand-brown/30 focus:outline-none focus:ring-1 focus:ring-brand-red focus:border-brand-red sm:text-sm"
+                                        className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-brand-red focus:ring-1 focus:ring-brand-red text-brand-black placeholder-gray-400 text-sm transition-colors"
                                         placeholder="vendor@ecocycle.com"
-                                        required
                                     />
+                                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                </div>
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full py-3.5 bg-brand-red text-white font-bold rounded-xl hover:bg-brand-brown transition-all shadow-lg shadow-brand-red/20 active:scale-95 disabled:opacity-70 text-sm"
+                            >
+                                {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Send Reset Link'}
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => { setIsForgotPassword(false); setError(''); setResetSuccess(''); }}
+                                className="w-full text-center text-sm font-bold text-brand-black hover:text-brand-red transition-colors pt-2"
+                            >
+                                ← Back to Sign In
+                            </button>
+                        </form>
+                    ) : isLogin ? (
+                        /* LOGIN FORM */
+                        <form onSubmit={handleLogin} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-brand-black mb-1.5 uppercase tracking-wide">
+                                    Work Email <span className="text-brand-red">*</span>
+                                </label>
+                                <div className="relative">
+                                    <input
+                                        type="email"
+                                        required
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-brand-red focus:ring-1 focus:ring-brand-red text-brand-black placeholder-gray-400 text-sm transition-colors"
+                                        placeholder="vendor@ecocycle.com"
+                                    />
+                                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                                 </div>
                             </div>
 
                             <div>
-                                <div className="flex justify-between items-center mb-2">
-                                    <label className="block text-sm font-bold text-brand-brown">{t('password_label')}</label>
-                                    <a href="#" className="text-xs font-bold text-brand-red hover:underline">{t('forgot_password')}</a>
+                                <div className="flex justify-between items-center mb-1.5">
+                                    <label className="block text-xs font-bold text-brand-black uppercase tracking-wide">
+                                        Password <span className="text-brand-red">*</span>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setIsForgotPassword(true); setError(''); }}
+                                        className="text-xs font-bold text-brand-red hover:underline"
+                                    >
+                                        Forgot?
+                                    </button>
                                 </div>
                                 <div className="relative">
-                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                        <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                                    </div>
                                     <input
-                                        type="password"
+                                        type={showPassword ? "text" : "password"}
+                                        required
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
-                                        autoComplete="current-password"
-                                        className="block w-full pl-10 pr-3 py-3 border border-brand-brown/20 rounded-lg leading-5 bg-brand-cream/20 text-brand-black placeholder-brand-brown/30 focus:outline-none focus:ring-1 focus:ring-brand-red focus:border-brand-red sm:text-sm"
+                                        className="w-full pl-10 pr-10 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-brand-red focus:ring-1 focus:ring-brand-red text-brand-black placeholder-gray-400 text-sm transition-colors"
                                         placeholder="••••••••"
-                                        required
                                     />
+                                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-brand-brown"
+                                    >
+                                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    </button>
                                 </div>
                             </div>
 
-                            <div className="flex items-center">
-                                <input
-                                    id="keep-logged"
-                                    name="keep-logged"
-                                    type="checkbox"
-                                    checked={keepLogged}
-                                    onChange={(e) => setKeepLogged(e.target.checked)}
-                                    className="h-4 w-4 text-brand-red focus:ring-brand-red border-gray-300 rounded"
-                                />
-                                <label htmlFor="keep-logged" className="ml-2 block text-sm text-brand-brown/70">
-                                    {t('keep_logged')}
+                            <div className="flex items-center justify-between pt-1">
+                                <label className="flex items-center cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={keepLogged}
+                                        onChange={(e) => setKeepLogged(e.target.checked)}
+                                        className="w-4 h-4 text-brand-red rounded border-gray-300 focus:ring-brand-red"
+                                    />
+                                    <span className="ml-2 text-xs font-bold text-brand-black">Keep me signed in</span>
                                 </label>
                             </div>
 
                             <button
                                 type="submit"
                                 disabled={loading}
-                                className="w-full flex justify-center py-4 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white bg-brand-red hover:bg-[#c4442b] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-red transition-all duration-200 transform hover:-translate-y-0.5"
+                                className="w-full py-3.5 bg-brand-red text-white font-bold rounded-xl hover:bg-brand-brown transition-all shadow-lg shadow-brand-red/20 active:scale-95 disabled:opacity-70 text-sm flex items-center justify-center gap-2"
                             >
-                                {loading ? t('accessing') : (
-                                    <span className="flex items-center gap-2">{t('access_dashboard')} <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg></span>
+                                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+                                    <>
+                                        <span>Sign In to Dashboard</span>
+                                        <ArrowRight className="w-4 h-4" />
+                                    </>
                                 )}
                             </button>
+
+                            <p className="pt-4 text-center text-xs font-bold text-brand-black">
+                                New facility?{' '}
+                                <button
+                                    type="button"
+                                    onClick={() => { setIsLogin(false); setError(''); }}
+                                    className="text-brand-red hover:underline ml-1"
+                                >
+                                    Register here
+                                </button>
+                            </p>
                         </form>
-
-                        <div className="mt-8 text-center text-xs font-medium text-brand-brown/60">
-                            {t('not_registered')} <button onClick={() => setIsLogin(false)} className="text-brand-orange hover:text-brand-red hover:underline font-bold">{t('apply_partnership')}</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
-    // REGISTRATION VIEW (Image 0: Partner Registration)
-    return (
-        <div className="min-h-screen font-sans flex flex-col lg:flex-row bg-brand-cream">
-            {/* Left Panel - Red/Orange Gradient */}
-            <div className="hidden lg:flex w-5/12 bg-gradient-to-br from-[#e35336] to-[#f4a460] p-12 flex-col justify-between relative overflow-hidden">
-                {/* Decorative Leaves */}
-                <div className="absolute top-1/4 right-0 w-64 h-64 bg-white opacity-10 rounded-full blur-3xl translate-x-1/2"></div>
-
-                <div>
-                    <div className="flex items-center gap-3 text-white mb-16">
-                        <img src={logo} alt="EcoCycle Logo" className="h-32 w-auto object-contain" />
-                    </div>
-
-                    <h1 className="text-5xl font-bold text-white leading-tight mb-8">
-                        {t('hero_reg_title')}
-                    </h1>
-
-                    <p className="text-white/80 text-lg leading-relaxed max-w-md">
-                        {t('hero_reg_subtitle')}
-                    </p>
-                </div>
-
-                <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20">
-                    <div className="flex items-center gap-4">
-                        <div className="flex -space-x-2">
-                            {[1, 2, 3].map(i => (
-                                <div key={i} className="w-10 h-10 rounded-full bg-gray-300 border-2 border-[#e35336]"></div>
-                            ))}
-                            <div className="w-10 h-10 rounded-full bg-brand-orange border-2 border-[#e35336] flex items-center justify-center text-xs font-bold text-white">+2k</div>
-                        </div>
-                        <div>
-                            <div className="text-white font-bold text-sm">{t('trusted_vendors')}</div>
-                            <div className="text-white/60 text-xs">Across 15 countries</div>
-                        </div>
-                    </div>
-                    <div className="mt-4 h-1 w-full bg-white/20 rounded-full overflow-hidden">
-                        <div className="h-full bg-brand-cream w-11/12 rounded-full"></div>
-                    </div>
-                    <div className="flex justify-end mt-1">
-                        <span className="text-white/60 text-[10px]">{t('satisfaction_rate')}</span>
-                    </div>
-                </div>
-            </div>
-
-            {/* Right Panel - Form */}
-            <div className="flex-1 flex flex-col justify-center px-4 py-12 lg:px-24 bg-brand-cream">
-                <div className="w-full max-w-xl mx-auto">
-                    <div className="flex justify-end mb-8 lg:absolute lg:top-8 lg:right-12">
-                        {/* Optional Theme Toggle can go here */}
-                        <div className="w-8 h-8 rounded-full bg-brand-brown/10 flex items-center justify-center text-brand-brown">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
-                        </div>
-                    </div>
-
-                    <h2 className="text-4xl font-bold text-brand-brown mb-2">{t('partner_reg_title')}</h2>
-                    <p className="text-brand-brown/60 mb-10">{t('partner_reg_subtitle')}</p>
-
-                    {error && <div className="mb-6 text-sm text-brand-red bg-red-50 p-4 rounded-lg border border-brand-red/20 font-bold">{error}</div>}
-
-                    <form onSubmit={handleRegister} className="space-y-5">
-                        <div>
-                            <label className="block text-xs font-bold text-brand-brown uppercase tracking-wide mb-2">{t('business_name_label')}</label>
-                            <div className="relative">
-                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
-                                </div>
-                                <input
-                                    type="text"
-                                    value={businessName}
-                                    onChange={(e) => setBusinessName(e.target.value)}
-                                    className="block w-full pl-10 px-4 py-3 border border-white bg-white rounded-lg shadow-sm placeholder-gray-300 text-brand-black focus:ring-2 focus:ring-brand-red focus:border-transparent transition-shadow"
-                                    placeholder="e.g. Green Earth Solutions Ltd."
-                                    required
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    ) : (
+                        /* REGISTER FORM */
+                        <form onSubmit={handleRegister} className="space-y-3.5">
                             <div>
-                                <label className="block text-xs font-bold text-brand-brown uppercase tracking-wide mb-2">{t('contact_person_label')}</label>
+                                <label className="block text-xs font-bold text-brand-black mb-1 uppercase tracking-wide">
+                                    Facility Name <span className="text-brand-red">*</span>
+                                </label>
                                 <div className="relative">
-                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                                    </div>
                                     <input
                                         type="text"
-                                        value={contactPerson}
-                                        onChange={(e) => setContactPerson(e.target.value)}
-                                        className="block w-full pl-10 px-4 py-3 border border-white bg-white rounded-lg shadow-sm placeholder-gray-300 text-brand-black focus:ring-2 focus:ring-brand-red focus:border-transparent transition-shadow"
-                                        placeholder="Jane Doe"
                                         required
+                                        value={businessName}
+                                        onChange={(e) => setBusinessName(e.target.value)}
+                                        className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-brand-red focus:ring-1 focus:ring-brand-red text-brand-black placeholder-gray-400 text-sm transition-colors"
+                                        placeholder="Green Recovery Ltd."
                                     />
+                                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                                 </div>
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-brand-brown uppercase tracking-wide mb-2">{t('work_email_label')}</label>
-                                <div className="relative">
-                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-brand-black mb-1 uppercase tracking-wide">
+                                        Contact Person <span className="text-brand-red">*</span>
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            required
+                                            value={contactPerson}
+                                            onChange={(e) => setContactPerson(e.target.value)}
+                                            className="w-full pl-10 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-brand-red focus:ring-1 focus:ring-brand-red text-brand-black placeholder-gray-400 text-sm transition-colors"
+                                            placeholder="Jane Doe"
+                                        />
+                                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                                     </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-brand-black mb-1 uppercase tracking-wide">
+                                        Category <span className="text-brand-red">*</span>
+                                    </label>
+                                    <div className="relative">
+                                        <select
+                                            required
+                                            value={businessType}
+                                            onChange={(e) => setBusinessType(e.target.value)}
+                                            className="w-full pl-10 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-brand-red focus:ring-1 focus:ring-brand-red text-brand-black text-sm transition-colors appearance-none"
+                                        >
+                                            <option value="" disabled>Select</option>
+                                            <option value="recycling_center">Recycling Facility</option>
+                                            <option value="waste_logistics">Scrap & Logistics</option>
+                                            <option value="manufacturing">Manufacturing</option>
+                                            <option value="other">Materials Other</option>
+                                        </select>
+                                        <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-brand-black mb-1 uppercase tracking-wide">
+                                    Work Email <span className="text-brand-red">*</span>
+                                </label>
+                                <div className="relative">
                                     <input
                                         type="email"
+                                        required
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
-                                        className="block w-full pl-10 px-4 py-3 border border-white bg-white rounded-lg shadow-sm placeholder-gray-300 text-brand-black focus:ring-2 focus:ring-brand-red focus:border-transparent transition-shadow"
-                                        placeholder="jane@company.com"
-                                        required
+                                        className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-brand-red focus:ring-1 focus:ring-brand-red text-brand-black placeholder-gray-400 text-sm transition-colors"
+                                        placeholder="contact@greenrecovery.com"
                                     />
+                                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                                 </div>
                             </div>
-                        </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                            <div>
-                                <label className="block text-xs font-bold text-brand-brown uppercase tracking-wide mb-2">{t('business_type_label')}</label>
-                                <div className="relative">
-                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-                                        {/* Icon for Business Type */}
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-brand-black mb-1 uppercase tracking-wide">
+                                        Password <span className="text-brand-red">*</span>
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type={showPassword ? "text" : "password"}
+                                            required
+                                            value={password}
+                                            onChange={(e) => setPassword(e.target.value)}
+                                            className="w-full pl-9 pr-9 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-brand-red focus:ring-1 focus:ring-brand-red text-brand-black placeholder-gray-400 text-sm transition-colors"
+                                            placeholder="Min. 6 chars"
+                                        />
+                                        <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-brand-brown"
+                                        >
+                                            {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                        </button>
                                     </div>
-                                    <select
-                                        value={businessType}
-                                        onChange={(e) => setBusinessType(e.target.value)}
-                                        className="block w-full pl-10 px-4 py-3 border border-white bg-white rounded-lg shadow-sm text-brand-black focus:ring-2 focus:ring-brand-red focus:border-transparent transition-shadow appearance-none"
-                                        required
-                                        style={{ color: businessType ? 'inherit' : '#d1d5db' }}
-                                    >
-                                        <option value="" disabled>{t('select_type')}</option>
-                                        <option value="recycling_center" className="text-black">{t('type_recycling')}</option>
-                                        <option value="waste_logistics" className="text-black">{t('type_logistics')}</option>
-                                        <option value="manufacturing" className="text-black">{t('type_manufacturing')}</option>
-                                        <option value="other" className="text-black">{t('type_other')}</option>
-                                    </select>
-                                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-gray-400">
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-brand-black mb-1 uppercase tracking-wide">
+                                        Confirm <span className="text-brand-red">*</span>
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type={showConfirmPassword ? "text" : "password"}
+                                            required
+                                            value={confirmPassword}
+                                            onChange={(e) => setConfirmPassword(e.target.value)}
+                                            className="w-full pl-9 pr-9 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-brand-red focus:ring-1 focus:ring-brand-red text-brand-black placeholder-gray-400 text-sm transition-colors"
+                                            placeholder="Repeat"
+                                        />
+                                        <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-brand-brown"
+                                        >
+                                            {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                        </button>
                                     </div>
                                 </div>
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-brand-brown uppercase tracking-wide mb-2">{t('password_label')}</label>
-                                <div className="relative">
-                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                                    </div>
-                                    <input
-                                        type="password"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        autoComplete="new-password"
-                                        className="block w-full pl-10 px-4 py-3 border border-white bg-white rounded-lg shadow-sm placeholder-gray-300 text-brand-black focus:ring-2 focus:ring-brand-red focus:border-transparent transition-shadow"
-                                        placeholder="••••••••"
-                                        required
-                                    />
-                                </div>
-                            </div>
-                        </div>
 
-                        <div className="flex items-start pt-2">
-                            <input
-                                id="terms"
-                                name="terms"
-                                type="checkbox"
-                                checked={terms}
-                                onChange={(e) => setTerms(e.target.checked)}
-                                className="h-5 w-5 mt-0.5 text-brand-red border-gray-300 rounded focus:ring-brand-red"
-                            />
-                            <label htmlFor="terms" className="ml-3 block text-sm text-brand-brown/70">
-                                {t('agree_terms')}
+                            <label className="flex items-start gap-2.5 p-3 rounded-xl bg-brand-cream/60 border border-brand-brown/15 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={acceptsWetWaste}
+                                    onChange={(e) => setAcceptsWetWaste(e.target.checked)}
+                                    className="w-4 h-4 mt-0.5 text-brand-green rounded border-gray-300 focus:ring-brand-green"
+                                />
+                                <div>
+                                    <span className="text-xs font-bold text-brand-black flex items-center gap-1.5">
+                                        <img src="/ecowaste.png" alt="EcoWaste" className="w-4 h-4 object-contain" />
+                                        Accept Wet Waste Subscriptions (EcoWaste)
+                                    </span>
+                                    <p className="text-[11px] text-brand-brown/70 mt-0.5">
+                                        Enable to receive recurring daily wet & organic scrap pickup requests from local households.
+                                    </p>
+                                </div>
                             </label>
-                        </div>
 
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="w-full flex justify-center py-4 px-4 border border-transparent rounded-xl shadow-lg text-sm font-bold text-white bg-brand-red hover:bg-[#c4442b] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-red transition-all duration-200 transform hover:-translate-y-0.5 uppercase tracking-wider"
-                        >
-                            {loading ? t('registering') : (
-                                <span className="flex items-center gap-2">{t('register_button')} <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg></span>
-                            )}
-                        </button>
-                    </form>
+                            <label className="flex items-center gap-2 cursor-pointer select-none pt-1">
+                                <input
+                                    type="checkbox"
+                                    checked={terms}
+                                    onChange={(e) => setTerms(e.target.checked)}
+                                    className="w-4 h-4 text-brand-red rounded border-gray-300 focus:ring-brand-red"
+                                />
+                                <span className="text-xs font-medium text-brand-brown/80">
+                                    I accept the EcoCycle Partner Terms
+                                </span>
+                            </label>
 
-                    <div className="mt-8 text-center text-sm font-medium text-brand-brown/60">
-                        {t('already_registered')} <button onClick={() => setIsLogin(true)} className="text-brand-orange hover:text-brand-red hover:underline font-bold">{t('login_here')}</button>
-                    </div>
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full py-3.5 bg-brand-red text-white font-bold rounded-xl hover:bg-brand-brown transition-all shadow-lg shadow-brand-red/20 active:scale-95 disabled:opacity-70 text-sm flex items-center justify-center gap-2"
+                            >
+                                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+                                    <>
+                                        <span>Create Partner Account</span>
+                                        <ArrowRight className="w-4 h-4" />
+                                    </>
+                                )}
+                            </button>
+
+                            <p className="pt-2 text-center text-xs font-bold text-brand-black">
+                                Already registered?{' '}
+                                <button
+                                    type="button"
+                                    onClick={() => { setIsLogin(true); setError(''); }}
+                                    className="text-brand-red hover:underline ml-1"
+                                >
+                                    Sign In
+                                </button>
+                            </p>
+                        </form>
+                    )}
 
                 </div>
             </div>

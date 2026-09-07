@@ -5,7 +5,7 @@ import { db } from '../firebase';
 import { doc, updateDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
 import LocationRequiredPopup from './LocationRequiredPopup';
 import logo from '../assets/logo.png';
-import { Store, User, LogOut, Globe, MessageCircle } from 'lucide-react';
+import { Store, User, LogOut, Globe, MessageCircle, Leaf } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 export default function Layout() {
@@ -58,7 +58,7 @@ export default function Layout() {
         <div className="min-h-screen bg-brand-cream font-sans">
             <LocationRequiredPopup />
 
-            <nav className="bg-white/90 backdrop-blur-md border-b border-brand-brown/10 shadow-sm fixed top-0 left-0 right-0 z-50">
+            <nav className="bg-white/95 backdrop-blur-md border-b border-brand-brown/10 shadow-sm fixed top-0 left-0 right-0 z-50">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between h-20 items-center">
                         <Link to="/dashboard" className="flex gap-3 items-center group">
@@ -69,6 +69,12 @@ export default function Layout() {
                         {/* Navigation Links Removed per new design request */}
 
                         <div className="flex items-center gap-3">
+                            {/* EcoWaste Link */}
+                            <Link to="/ecowaste" className="flex items-center gap-2 bg-brand-brown/5 hover:bg-brand-brown/10 px-3 py-2 rounded-xl transition-colors text-brand-brown font-medium text-sm">
+                                <Leaf className="w-4 h-4 text-brand-green" />
+                                <span className="hidden sm:inline">EcoWaste</span>
+                            </Link>
+
                             {/* My Shop Link - Moved to Right & Styled */}
                             <Link to="/products" className="flex items-center gap-2 bg-brand-brown/5 hover:bg-brand-brown/10 px-3 py-2 rounded-xl transition-colors text-brand-brown font-medium text-sm">
                                 <Store className="w-4 h-4" />

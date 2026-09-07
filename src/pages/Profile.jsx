@@ -18,6 +18,7 @@ export default function Profile() {
     const [phone, setPhone] = useState('');
     const [location, setLocation] = useState(null);
     const [language, setLanguage] = useState('en');
+    const [acceptsWetWaste, setAcceptsWetWaste] = useState(false);
 
     // UI States
     const [loading, setLoading] = useState(false);
@@ -30,8 +31,7 @@ export default function Profile() {
             setPhone(currentUser.phone || '');
             setLocation(currentUser.location || null);
             setLanguage(currentUser.language || 'en');
-
-
+            setAcceptsWetWaste(Boolean(currentUser.acceptsWetWaste));
         }
     }, [currentUser, isEditing, i18n]);
 
@@ -52,7 +52,8 @@ export default function Profile() {
                 contactPerson,
                 phone,
                 location,
-                language // Save language preference
+                language,
+                acceptsWetWaste: Boolean(acceptsWetWaste)
             });
             await refreshProfile();
 
@@ -212,6 +213,31 @@ export default function Profile() {
                                 {isEditing && <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-brown/40 pointer-events-none" />}
                             </div>
                             {!isEditing && <p className="text-xs text-brand-brown/40 mt-1 italic">{t('click_edit_hint')}</p>}
+                        </div>
+
+                        {/* EcoWaste Wet Waste Subscriptions Acceptance */}
+                        <div className="pt-5 border-t border-brand-brown/10">
+                            <div className="flex items-start justify-between gap-4">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <img src="/ecowaste.png" alt="EcoWaste" className="w-5 h-5 object-contain" />
+                                        <span className="font-bold text-sm text-brand-black">Accept Wet Waste Subscriptions</span>
+                                    </div>
+                                    <p className="text-xs text-brand-brown/70 mt-1 max-w-md">
+                                        When enabled, your facility appears in the EcoWaste network and receives recurring daily organic & kitchen scrap collection requests from nearby households.
+                                    </p>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer flex-shrink-0 mt-1">
+                                    <input
+                                        type="checkbox"
+                                        checked={acceptsWetWaste}
+                                        onChange={(e) => setAcceptsWetWaste(e.target.checked)}
+                                        disabled={!isEditing}
+                                        className="sr-only peer"
+                                    />
+                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-green"></div>
+                                </label>
+                            </div>
                         </div>
                     </div>
                 </div>

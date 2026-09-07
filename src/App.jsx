@@ -9,6 +9,7 @@ import Requests from './pages/Requests';
 import Earnings from './pages/Earnings';
 import Messages from './pages/Messages';
 import MyProducts from './pages/MyProducts';
+import EcoWaste from './pages/EcoWaste';
 import Layout from './components/Layout';
 import EcoBot from './components/EcoBot';
 
@@ -88,6 +89,14 @@ function App() {
               element={
                 <PrivateRoute>
                   <MyProducts />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/ecowaste"
+              element={
+                <PrivateRoute>
+                  <EcoWaste />
                 </PrivateRoute>
               }
             />
