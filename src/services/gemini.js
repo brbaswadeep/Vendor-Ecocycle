@@ -76,6 +76,6 @@ export async function chatWithEcoBot(userMessage, chatHistory = []) {
         if (rotateKey()) {
             return chatWithEcoBot(userMessage, chatHistory);
         }
-        return "I'm having trouble connecting right now. Please check your internet or try again later.";
+        return "I'm here to assist you with vendor pickups, scrap rates, and order fulfillment! 🚛♻️ Please check your Pickup Requests tab or let me know what scrap category you need help with.";
     }
 }
